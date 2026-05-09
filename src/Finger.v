@@ -85,6 +85,11 @@ Tactic Notation "invert_clear" integer(n) :=
 (** ** Shared utilities (mirrors ImplicitQueue.v preamble)             *)
 (* ================================================================= *)
 
+Ltac head_is_constructor t := match t with
+                              | ?f ?x => head_is_constructor f
+                              | _ => is_constructor t
+                              end.
+
 Lemma make_partial_order A (R : A -> A -> Prop) `{PreOrder A R} :
   (forall (x y : A), R x y -> R y x -> x = y) -> PartialOrder eq R.
 Proof.
@@ -720,4 +725,266 @@ Proof.
     invert_clear H1; invert_clear H2; repeat constructor; apply lub_upper_bound_l; eauto.
   - invert_clear 1. invert_clear H1.
     invert_clear H1; invert_clear H2; repeat constructor; apply lub_upper_bound_r; eauto.
+Qed.
+
+(* ================================================================= *)
+(** ** Section 2 Part 3: SeqA — approximated sequence                 *)
+(* ================================================================= *)
+
+(** *** SeqA inductive definition
+
+    The middle field is [T (SeqA (TupleA A))] — a thunk wrapping the
+    polymorphic-recursive spine.  We suppress automatic elimination
+    schemes because Rocq's auto-generated induction principle gives the
+    wrong IH for nested [SeqA (TupleA A)]; we write [SeqA_ind] by hand
+    below. *)
+
+Unset Elimination Schemes.
+
+Inductive SeqA (A : Type) : Type :=
+| NilA  : SeqA A
+| UnitA : T A -> SeqA A
+| MoreA : T (DigitA A) -> T (SeqA (TupleA A)) -> T (DigitA A) -> SeqA A.
+
+#[global] Hint Constructors SeqA : core.
+
+Arguments NilA  {A}.
+Arguments UnitA {A}.
+Arguments MoreA {A}.
+
+(** *** SeqA_ind — custom induction principle
+
+    Universally quantifies over the type parameter so that the IH in
+    the [MoreA] case holds at [TupleA A], not just at [A].  The middle
+    field is split via [destruct t0] into [Thunk]/[Undefined] to
+    discharge [TR1]. *)
+
+Lemma SeqA_ind (P : forall A, SeqA A -> Prop) :
+  (forall A, P A NilA) ->
+  (forall A x, P A (UnitA x)) ->
+  (forall A f m r, TR1 (P (TupleA A)) m -> P A (MoreA f m r)) ->
+  forall (A : Type) (s : SeqA A), P A s.
+Proof.
+  intros HNilA HUnitA HMoreA. fix SELF 2.
+  destruct s.
+  - apply HNilA.
+  - apply HUnitA.
+  - apply HMoreA. destruct t0.
+    + constructor. apply SELF.
+    + constructor.
+Qed.
+
+Set Elimination Schemes.
+
+(** *** LessDefined for SeqA
+
+    Approximation order: pointwise on matching constructors.
+    [T]-level [Undefined] provides the "bottom ⊑ anything" case for
+    each field; there is no separate [SeqBot] constructor. *)
+
+Inductive LessDefined_SeqA A `{LessDefined A} : LessDefined (SeqA A) :=
+| LessDefined_NilA  : NilA `less_defined` NilA
+| LessDefined_UnitA x1 x2 :
+    x1 `less_defined` x2 ->
+    UnitA x1 `less_defined` UnitA x2
+| LessDefined_MoreA f1 f2 m1 m2 r1 r2 :
+    f1 `less_defined` f2 -> m1 `less_defined` m2 -> r1 `less_defined` r2 ->
+    MoreA f1 m1 r1 `less_defined` MoreA f2 m2 r2.
+
+#[global] Hint Constructors LessDefined_SeqA : core.
+#[global] Existing Instance LessDefined_SeqA.
+
+(** *** Reflexivity *)
+
+Lemma LessDefined_SeqA_refl A `{LessDefined A, Reflexive A less_defined} :
+  (forall (x : A), x `less_defined` x) -> forall (s : SeqA A), s `less_defined` s.
+Proof.
+  induction s.
+  - constructor.
+  - constructor. 
+    assert (@Reflexive (T A) less_defined) by apply Reflexive_LessDefined_T.
+    reflexivity.
+  - assert (@Reflexive (T (DigitA A)) less_defined) by apply Reflexive_LessDefined_T. 
+    invert_clear H2.
+    + constructor; try reflexivity. constructor. auto.
+    + constructor; auto.
+Qed.
+#[global] Hint Resolve LessDefined_SeqA_refl : core.
+
+#[global] Instance Reflexive_LessDefined_SeqA A `{LDA : LessDefined A, !Reflexive LDA} :
+  Reflexive (@less_defined (SeqA A) _).
+Proof.
+  unfold Reflexive. eauto.
+Qed.
+
+(** *** Transitivity *)
+
+Lemma LessDefined_SeqA_trans A `{LessDefined A, Transitive A less_defined} :
+  (forall (x y z : A), x `less_defined` y -> y `less_defined` z -> x `less_defined` z) ->
+  forall (x y z : SeqA A), x `less_defined` y -> y `less_defined` z -> x `less_defined` z.
+Proof.
+  induction y.
+  - repeat invert_clear 1. auto.
+  - assert (@Transitive (T A) less_defined) by apply Transitive_LessDefined_T.
+    repeat invert_clear 1. constructor; eauto.
+  - assert (@Transitive (T (DigitA A)) less_defined) by apply Transitive_LessDefined_T.
+    repeat invert_clear 1. 
+    repeat constructor; try (etransitivity; eauto).
+    invert_clear H2; repeat match goal with
+                       | H : ?x `less_defined` ?y |- _ =>
+                           (head_is_constructor x + head_is_constructor y); invert_clear H
+                       end; constructor.
+    apply H2; eauto.
+Qed.
+#[global] Hint Resolve LessDefined_SeqA_trans : core.
+
+#[global] Instance Transitive_LessDefined_SeqA A `{LDA : LessDefined A, Transitive A LDA} :
+  Transitive (@less_defined (SeqA A) _).
+Proof.
+  unfold Transitive. eauto.
+Qed.
+
+(** *** PreOrder *)
+
+#[global] Instance PreOrder_LessDefined_SeqA A `{LDA : LessDefined A, PreOrder A LDA} :
+  PreOrder (@less_defined (SeqA A) _).
+Proof.
+  destruct H. constructor; eauto.
+Qed.
+
+(** *** Antisymmetry / PartialOrder *)
+
+Lemma LessDefined_SeqA_antisym_aux :
+  forall A `{LessDefined A},
+  (forall (x y : A), x `less_defined` y -> y `less_defined` x -> x = y) ->
+  forall (x y : SeqA A), x `less_defined` y -> y `less_defined` x -> x = y.
+Proof.
+  fix SELF 4.
+  intros A H Hanti x y Hxy Hyx.
+  destruct x; destruct y; inversion Hxy; inversion Hyx; subst;
+    try reflexivity; try discriminate.
+  - (* UnitA *)
+    f_equal. apply (LessDefined_T_antisym Hanti); assumption.
+  - (* MoreA *)
+    f_equal.
+    + apply LessDefined_T_antisym; eauto.
+    + destruct t0 as [ms |]; destruct t3 as [ms2 |];
+        try (inversion H5; fail); try (inversion H10; fail); try reflexivity.
+      inversion H7; subst. inversion H16; subst.
+      f_equal. apply (SELF _ _ (@LessDefined_TupleA_antisym A _ Hanti)); eauto.
+      * inversion H7.
+      * inversion H16.
+    + apply LessDefined_T_antisym; eauto.
+Qed.
+
+
+Lemma LessDefined_SeqA_antisym A `{LessDefined A} :
+  (forall (x y : A), x `less_defined` y -> y `less_defined` x -> x = y) ->
+  forall (x y : SeqA A), x `less_defined` y -> y `less_defined` x -> x = y.
+Proof.
+  apply LessDefined_SeqA_antisym_aux.
+Qed.
+#[global] Hint Resolve LessDefined_SeqA_antisym : core.
+
+#[global] Instance PartialOrder_LessDefined_SeqA A
+  `{LessDefined A, PartialOrder A eq less_defined} :
+  PartialOrder eq (@less_defined (SeqA A) _).
+Proof.
+  apply make_partial_order. apply LessDefined_SeqA_antisym. firstorder.
+Qed.
+
+(** *** Exact for Seq / SeqA
+
+    Must be a polymorphic [fix] — see the comment in ImplicitQueue.v
+    before [Exact_Queue] for why a plain instance causes an instance
+    mismatch in the recursive [More] branch. *)
+
+#[global] Instance Exact_Seq : forall A B `{Exact A B}, Exact (Seq A) (SeqA B) :=
+  fix Exact_Seq A B _ s :=
+    match s with
+    | Nil        => NilA
+    | Unit x     => UnitA (exact x)
+    | More f m r => MoreA (exact f) (Thunk (Exact_Seq _ _ _ m)) (exact r)
+    end.
+
+(** *** BottomOf for SeqA *)
+
+#[global] Instance BottomOf_SeqA (A : Type) : BottomOf (SeqA A) :=
+  fun s => match s with
+           | NilA        => NilA
+           | UnitA _     => UnitA Undefined
+           | MoreA _ _ _ => MoreA Undefined Undefined Undefined
+           end.
+
+#[global] Instance BottomIsLeast_SeqA (A : Type) `{LessDefined A} :
+  BottomIsLeast (SeqA A).
+Proof.
+  invert_clear 1; repeat constructor.
+Qed.
+
+(** *** Lub for SeqA
+
+    Must be a polymorphic [fix] for the same reason as [Exact_Seq]:
+    the [MoreA] branch recurses at [TupleA A], so [Lub_T] for the
+    middle field must be instantiated with [lub_SeqA (TupleA A)]. *)
+
+#[global] Instance Lub_SeqA : forall (A : Type) `{Lub A}, Lub (SeqA A) :=
+  fix lub_SeqA (A : Type) _ (s1 s2 : SeqA A) :=
+    match s1, s2 with
+    | NilA,            NilA            => NilA
+    | UnitA x1,        UnitA x2        => UnitA (lub x1 x2)
+    | MoreA f1 m1 r1,  MoreA f2 m2 r2  =>
+        MoreA (lub f1 f2) (@lub _ (@Lub_T _ (lub_SeqA _ _)) m1 m2) (lub r1 r2)
+    | _,               _               => NilA
+    end.
+
+(** *** LubLaw for SeqA *)
+
+#[global] Instance LubLaw_SeqA (A : Type)
+  `{LDA : LessDefined A, Reflexive A less_defined, LBA : Lub A, @LubLaw _ LBA LDA} :
+  LubLaw (SeqA A).
+Proof.
+  split.
+  - induction z; repeat invert_clear 1; repeat constructor;
+      try solve [ apply lub_least_upper_bound; auto ].
+    invert_clear H1; repeat match goal with
+                       | H : ?x `less_defined` ?y |- _ =>
+                           (head_is_constructor x + head_is_constructor y); invert_clear H
+                       end; repeat constructor; auto.
+    apply H1; auto.
+    apply LubLaw_TupleA.
+  - induction x; invert_clear 1;
+      match goal with
+      | H : ?P /\ ?Q |- _ => invert_clear H
+      end;
+      repeat match goal with
+        | H : ?x `less_defined` ?y |- _ =>
+            (head_is_constructor x + head_is_constructor y); invert_clear H
+        end; repeat constructor; try solve [ apply lub_upper_bound_l; eauto ].
+    invert_clear H1; auto.
+    repeat match goal with
+           | H : ?x `less_defined` ?y |- _ =>
+               (head_is_constructor x + head_is_constructor y); invert_clear H
+           end; constructor; try reflexivity.
+    apply H1.
+    + eauto.
+    + apply LubLaw_TupleA.
+    + eauto.
+  - induction y; invert_clear 1;
+      match goal with
+      | H : ?P /\ ?Q |- _ => invert_clear H
+      end;
+      repeat match goal with
+        | H : ?x `less_defined` ?y |- _ =>
+            (head_is_constructor x + head_is_constructor y); invert_clear H
+        end; repeat constructor; try solve [ apply lub_upper_bound_r; eauto ].
+    invert_clear H1; auto.
+    repeat match goal with
+           | H : ?x `less_defined` ?y |- _ =>
+               (head_is_constructor x + head_is_constructor y); invert_clear H
+           end; constructor; try reflexivity.
+    apply H1.
+    + eauto.
+    + apply LubLaw_TupleA.
+    + eauto.
 Qed.
