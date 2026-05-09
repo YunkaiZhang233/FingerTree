@@ -1,0 +1,17 @@
+.nia.cache
+.lia.cache
+.coqdeps.d
+*.vo
+*.vos
+*.vok
+*.glob
+*.aux
+Makefile.coq
+Makefile.coq.conf
+.Makefile.coq.d
+*~
+.DS_Store
+DOT_Makefile.coq.d
+DOT_coqdeps.d
+_opam
+_build

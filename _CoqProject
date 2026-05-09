@@ -1,0 +1,23 @@
+-Q src Clairvoyance
+
+src/Misc.v
+src/Core.v
+src/Approx.v
+src/ApproxM.v
+src/FormalTranslation.v
+src/ListA.v
+src/List.v
+src/Prod.v
+src/Option.v
+src/InsertionSort.v
+src/BankersQueue.v
+src/Interfaces.v
+src/QueueInterface.v
+src/Cost.v
+src/Tick.v
+src/TickCost.v
+src/Relations.v
+src/Setoid.v
+src/ImplicitQueue.v
+src/DemandSemantics.v
+src/SelectionSort.v
