@@ -8,12 +8,13 @@
     reverse physicist's method from Xia et al. (ICFP 2024).
  
     The key data structure is:
- 
-      Seq A = Nil | Unit A | More (Digit A) (Seq (A * A)) (Digit A)
- 
-    where Digit A holds 1--3 elements. The recursive spine stores
-    pairs, doubling the element type at each level — the same
-    polymorphic recursion pattern as the implicit queue.
+
+      Seq A = Nil | Unit A | More (Digit A) (Seq (Tuple A)) (Digit A)
+
+    where Digit A holds 1--3 elements and Tuple A is a 2- or 3-node.
+    The recursive spine stores tuples, doubling (or tripling) the
+    element type at each level — the same polymorphic recursion
+    pattern as the implicit queue, with an extra Triple case.
  
     Compared to ImplicitQueue.v:
       - Digit range widens from {1,2} to {1,2,3}
@@ -128,18 +129,36 @@ Arguments One   {A}.
 Arguments Two   {A}.
 Arguments Three {A}.
 
-(** *** The Sequence Type
+(** *** Tuples (2-3 nodes)
  
-    The core finger tree / implicit deque.
+    Each element in the recursive spine is a [Tuple], holding either
+    2 or 3 elements.  This is what distinguishes Claessen's final
+    design from the simpler pair-only version:
+ 
+    - [Pair a b] represents 2 elements
+    - [Triple a b c] represents 3 elements
+ 
+    The key role of [Tuple] in the deque operations: when [tail]
+    pulls from the middle and finds a [Triple], it can [chop] it
+    to a [Pair] without recursing, using the non-recursive [map1].
+    This avoids a recursive call in that case. *)
+ 
+Inductive Tuple (A : Type) : Type :=
+  | Pair   : A -> A -> Tuple A
+  | Triple : A -> A -> A -> Tuple A.
+ 
+Arguments Pair   {A}.
+Arguments Triple {A}.
+
+(** *** The Sequence Type
  
     Nil   — empty sequence
     Unit  — singleton (no digits, no spine)
-    More  — front digit, lazy middle of pairs, rear digit
+    More  — front digit, middle spine of tuples, rear digit
  
-    The middle [m : Seq (A * A)] is the polymorphic recursion:
-    level 0 stores A, level 1 stores A*A, level 2 stores
-    (A*A)*(A*A), etc.  Each element at level k represents 2^k
-    original elements.
+    The middle [m : Seq (Tuple A)] is the polymorphic recursion.
+    At level 0 we store [A], at level 1 [Tuple A], at level 2
+    [Tuple (Tuple A)], etc.
  
     Note: in the lazy version, the [m] field would be wrapped in
     a thunk.  Here we give the pure (strict) reference implementation
@@ -148,8 +167,8 @@ Arguments Three {A}.
 Inductive Seq (A : Type) : Type :=
   | Nil  : Seq A
   | Unit : A -> Seq A
-  | More : Digit A -> Seq (A * A) -> Digit A -> Seq A.
- 
+  | More : Digit A -> Seq (Tuple A) -> Digit A -> Seq A.
+
 Arguments Nil  {A}.
 Arguments Unit {A}.
 Arguments More {A}.
@@ -168,31 +187,31 @@ Arguments More {A}.
       + [f = One a]:     grow to [Two x a].
       + [f = Two a b]:   grow to [Three x a b].
       + [f = Three a b c]: overflow!  Keep [Two x a] in front,
-        pair up [(b, c)] and cons the pair into the middle.
+        bundle [b] and [c] into [Pair b c] and cons it into the middle.
         The front goes from dangerous (Three) to safe (Two). *)
- 
+
 Fixpoint cons {A : Type} (x : A) (s : Seq A) : Seq A :=
   match s with
   | Nil              => Unit x
   | Unit y           => More (One x) Nil (One y)
   | More (One a) m r       => More (Two x a) m r
   | More (Two a b) m r     => More (Three x a b) m r
-  | More (Three a b c) m r => More (Two x a) (cons (b, c) m) r
+  | More (Three a b c) m r => More (Two x a) (cons (Pair b c) m) r
   end.
  
 (** *** snoc — insert at the rear
- 
+
     Symmetric to [cons].  Overflow on the rear digit [Three a b c]
-    pairs up [(a, b)] and snocs into the middle, keeping [Two c x]
-    as the new rear. *)
- 
+    bundles [a] and [b] into [Pair a b] and snocs it into the middle,
+    keeping [Two c x] as the new rear. *)
+
 Fixpoint snoc {A : Type} (s : Seq A) (x : A) : Seq A :=
   match s with
   | Nil              => Unit x
   | Unit y           => More (One y) Nil (One x)
   | More f m (One a)       => More f m (Two a x)
   | More f m (Two a b)     => More f m (Three a b x)
-  | More f m (Three a b c) => More f (snoc m (a, b)) (Two c x)
+  | More f m (Three a b c) => More f (snoc m (Pair a b)) (Two c x)
   end.
  
 (** *** head — peek at the front element *)
@@ -207,7 +226,7 @@ Definition head {A : Type} (s : Seq A) : option A :=
   end.
  
 (** *** last — peek at the rear element *)
- 
+
 Definition last {A : Type} (s : Seq A) : option A :=
   match s with
   | Nil                    => None
@@ -216,19 +235,65 @@ Definition last {A : Type} (s : Seq A) : option A :=
   | More _ _ (Two _ x)     => Some x
   | More _ _ (Three _ _ x) => Some x
   end.
- 
-(** *** tail — remove from the front
- 
-    When the front digit is [Two] or [Three], we just shrink it.
-    When it is [One], we must pull a pair from the middle to refill.
- 
-    If the middle is empty, we restructure from the rear digit alone.
-    If the middle is non-empty, we extract its head pair [(a, b)],
-    install [Two a b] as the new front, and tail the middle.
- 
-    Returns [None] if the sequence is empty, [Some (x, s')] where
-    [x] is the removed element and [s'] is the remaining sequence. *)
- 
+
+(** *** Non-recursive spine helpers
+
+    These four O(1) functions enable [uncons]/[unsnoc] to avoid a
+    recursive spine removal when the head (or last) tuple is a [Triple].
+
+    [chop] / [chopLast] trim a [Triple] to a [Pair] by dropping the
+    first or last element respectively.  They are only ever called on
+    [Triple]s; the [Pair] branch is unreachable but needed for totality.
+
+    [map1] / [mapLast] apply [f] to only the first (or last) element of
+    a [Seq], without touching the spine.  They are O(1) because they
+    match only the outermost constructor. *)
+
+Definition chop {A : Type} (t : Tuple A) : Tuple A :=
+  match t with
+  | Triple _ y z => Pair y z
+  | p            => p
+  end.
+
+Definition chopLast {A : Type} (t : Tuple A) : Tuple A :=
+  match t with
+  | Triple a b _ => Pair a b
+  | p            => p
+  end.
+
+Definition map1 {A : Type} (f : A -> A) (s : Seq A) : Seq A :=
+  match s with
+  | Nil                    => Nil
+  | Unit x                 => Unit (f x)
+  | More (One x) q u       => More (One (f x)) q u
+  | More (Two x y) q u     => More (Two (f x) y) q u
+  | More (Three x y z) q u => More (Three (f x) y z) q u
+  end.
+
+Definition mapLast {A : Type} (f : A -> A) (s : Seq A) : Seq A :=
+  match s with
+  | Nil                    => Nil
+  | Unit x                 => Unit (f x)
+  | More u q (One x)       => More u q (One (f x))
+  | More u q (Two x y)     => More u q (Two x (f y))
+  | More u q (Three x y z) => More u q (Three x y (f z))
+  end.
+
+(** *** uncons — remove from the front (Claessen's [tail] + [more0])
+
+    [Three] / [Two]: shrink the front digit directly.  O(1).
+    [One]: front empties; refill from the spine via three sub-cases.
+
+    Sub-cases when spine is non-empty (paper's [more0]):
+      - Head is [Pair a b]:     install [Two a b] (safe) as new front;
+          remove the pair by recursing into the spine.
+      - Head is [Triple a _ _]: install [One a] (dangerous) as new front;
+          transform the Triple to a Pair in-place with [map1 chop].
+          No recursive removal — O(1) for this case.
+
+    The [Pair] case is the only recursion.  The [Triple] case is O(1)
+    because [map1] never enters the spine. *)
+
 Fixpoint uncons {A : Type} (s : Seq A) : option (A * Seq A) :=
   match s with
   | Nil => None
@@ -236,21 +301,31 @@ Fixpoint uncons {A : Type} (s : Seq A) : option (A * Seq A) :=
   | More (Three x a b) m r => Some (x, More (Two a b) m r)
   | More (Two x a) m r     => Some (x, More (One a) m r)
   | More (One x) m r =>
-      match uncons m with
-      | Some ((a, b), m') => Some (x, More (Two a b) m' r)
+      match head m with
       | None =>
           match r with
-          | One a         => Some (x, Unit a)
-          | Two a b       => Some (x, More (One a) Nil (One b))
-          | Three a b c   => Some (x, More (One a) Nil (Two b c))
+          | One a       => Some (x, Unit a)
+          | Two a b     => Some (x, More (One a) Nil (One b))
+          | Three a b c => Some (x, More (One a) Nil (Two b c))
           end
+      | Some (Pair a b) =>
+          match uncons m with
+          | Some (_, m') => Some (x, More (Two a b) m' r)
+          | None         => None
+          end
+      | Some (Triple a _ _) =>
+          Some (x, More (One a) (map1 chop m) r)
       end
   end.
- 
-(** *** unsnoc — remove from the rear
- 
-    Symmetric to [uncons]. *)
- 
+
+(** *** unsnoc — remove from the rear (symmetric to [uncons])
+
+    Sub-cases when spine is non-empty:
+      - Last is [Pair a b]:     install [Two a b] (safe) as new rear;
+          remove by recursing.
+      - Last is [Triple _ _ c]: install [One c] (dangerous) as new rear;
+          transform the Triple to a Pair in-place with [mapLast chopLast]. *)
+
 Fixpoint unsnoc {A : Type} (s : Seq A) : option (Seq A * A) :=
   match s with
   | Nil => None
@@ -258,14 +333,20 @@ Fixpoint unsnoc {A : Type} (s : Seq A) : option (Seq A * A) :=
   | More f m (Three a b x) => Some (More f m (Two a b), x)
   | More f m (Two a x)     => Some (More f m (One a), x)
   | More f m (One x) =>
-      match unsnoc m with
-      | Some (m', (a, b)) => Some (More f m' (Two a b), x)
+      match last m with
       | None =>
           match f with
-          | One a         => Some (Unit a, x)
-          | Two a b       => Some (More (One a) Nil (One b), x)
-          | Three a b c   => Some (More (Two a b) Nil (One c), x)
+          | One a       => Some (Unit a, x)
+          | Two a b     => Some (More (One a) Nil (One b), x)
+          | Three a b c => Some (More (Two a b) Nil (One c), x)
           end
+      | Some (Pair a b) =>
+          match unsnoc m with
+          | Some (m', _) => Some (More f m' (Two a b), x)
+          | None         => None
+          end
+      | Some (Triple _ _ c) =>
+          Some (More f (mapLast chopLast m) (One c), x)
       end
   end.
  
@@ -300,17 +381,20 @@ Definition digitToList {A : Type} (d : Digit A) : list A :=
   end.
  
 (** [toList] requires a "flattener" for elements, because at deeper
-    levels of the spine, elements are pairs (or pairs of pairs, etc.).
-    We parameterise by a function [f : A -> list B] that recursively
-    flattens compound elements to lists of base elements. *)
- 
+    levels of the spine, elements are tuples.  We parameterise by a
+    function [f : A -> list B] that recursively flattens compound
+    elements to lists of base elements. *)
+
 Fixpoint toListWith {A B : Type} (f : A -> list B) (s : Seq A) : list B :=
   match s with
   | Nil          => nil
   | Unit x       => f x
   | More fr m rr =>
       List.flat_map f (digitToList fr)
-      ++ toListWith (fun '(a, b) => f a ++ f b) m
+      ++ toListWith (fun t => match t with
+                              | Pair a b     => f a ++ f b
+                              | Triple a b c => f a ++ f b ++ f c
+                              end) m
       ++ List.flat_map f (digitToList rr)
   end.
  
@@ -490,4 +574,150 @@ Proof.
     invert_clear H1; invert_clear H2; repeat constructor; apply lub_upper_bound_l; eauto.
   - invert_clear 1. invert_clear H1.
     invert_clear H1; invert_clear H2; repeat constructor; apply lub_upper_bound_r; eauto.
-Qed.  
+Qed.
+
+(** *** TupleA — approximated spine tuple
+
+    Mirrors [Tuple] exactly as [DigitA] mirrors [Digit]: each element
+    field is wrapped in [T].  [PairA] and [TripleA] have 2 and 3
+    fields respectively.  No bot constructor — the surrounding [T] in
+    [SeqA] handles "this spine node is not demanded at all". *)
+
+Inductive TupleA (A : Type) : Type :=
+| PairA   : T A -> T A -> TupleA A
+| TripleA : T A -> T A -> T A -> TupleA A.
+
+#[global] Hint Constructors TupleA : core.
+
+Arguments PairA   {A}.
+Arguments TripleA {A}.
+
+(** *** LessDefined for TupleA *)
+
+Inductive LessDefined_TupleA A `{LessDefined A} : LessDefined (TupleA A) :=
+| LessDefined_PairA x1 x2 y1 y2 :
+    x1 `less_defined` x2 -> y1 `less_defined` y2 ->
+    PairA x1 y1 `less_defined` PairA x2 y2
+| LessDefined_TripleA x1 x2 y1 y2 z1 z2 :
+    x1 `less_defined` x2 -> y1 `less_defined` y2 -> z1 `less_defined` z2 ->
+    TripleA x1 y1 z1 `less_defined` TripleA x2 y2 z2.
+
+#[global] Hint Constructors LessDefined_TupleA : core.
+#[global] Existing Instance LessDefined_TupleA.
+
+Lemma LessDefined_TupleA_refl A `{LessDefined A} :
+  (forall (x : A), x `less_defined` x) ->
+  forall (t : TupleA A), t `less_defined` t.
+Proof.
+  destruct t;
+    repeat match goal with u : T A |- _ => destruct u end;
+    auto.
+Qed.
+#[global] Hint Resolve LessDefined_TupleA_refl : core.
+
+#[global] Instance Reflexive_LessDefined_TupleA A `{LessDefined A, Reflexive A less_defined} :
+  Reflexive (@less_defined (TupleA A) _).
+Proof.
+  unfold Reflexive. auto.
+Qed.
+
+Lemma LessDefined_TupleA_trans A `{LessDefined A} :
+  (forall (x y z : A), x `less_defined` y -> y `less_defined` z -> x `less_defined` z) ->
+  forall (x y z : TupleA A),
+    x `less_defined` y -> y `less_defined` z -> x `less_defined` z.
+Proof.
+  intro.
+  repeat invert_clear 1;
+    repeat match goal with
+      | H : ?x `less_defined` ?y |- _ => invert_clear H
+      end;
+    repeat constructor; eauto.
+Qed.
+#[global] Hint Resolve LessDefined_TupleA_trans : core.
+
+#[global] Instance Transitive_LessDefined_TupleA A `{LessDefined A, Transitive A less_defined} :
+  Transitive (@less_defined (TupleA A) _).
+Proof.
+  unfold Transitive. eauto.
+Qed.
+
+#[global] Instance PreOrder_LessDefined_TupleA A `{LDA : LessDefined A, PreOrder A LDA} :
+  PreOrder (@less_defined (TupleA A) _).
+Proof.
+  destruct H. constructor; eauto.
+Qed.
+
+Lemma LessDefined_TupleA_antisym A `{LessDefined A} :
+  (forall (x y : A), x `less_defined` y -> y `less_defined` x -> x = y) ->
+  forall (x y : TupleA A),
+    x `less_defined` y -> y `less_defined` x -> x = y.
+Proof.
+  intro.
+  repeat inversion_clear 1;
+    repeat match goal with
+      | H : ?x `less_defined` ?y |- _ => invert_clear H
+      end;
+    f_equal; eauto.
+Qed.
+#[global] Hint Resolve LessDefined_TupleA_antisym : core.
+
+#[global] Instance PartialOrder_LessDefined_TupleA A
+  `{LessDefined A, PartialOrder A eq less_defined} :
+  PartialOrder eq (@less_defined (TupleA A) _).
+Proof.
+  apply make_partial_order. apply LessDefined_TupleA_antisym. firstorder.
+Qed.
+
+(** *** Exact for Tuple / TupleA *)
+
+#[global] Instance Exact_Tuple A B `{Exact A B} : Exact (Tuple A) (TupleA B) :=
+  fun t => match t with
+           | Pair x y     => PairA   (exact x) (exact y)
+           | Triple x y z => TripleA (exact x) (exact y) (exact z)
+           end.
+
+#[global] Instance ExactMaximal_Tuple A B `{ExactMaximal B A} :
+  ExactMaximal (TupleA B) (Tuple A).
+Proof.
+  intros tA []; unfold exact, Exact_Tuple; inversion 1; subst; f_equal.
+  - destruct x2; unfold exact, Exact_T.
+    + f_equal. apply H. inversion H3; subst. assumption.
+    + inversion H3.
+  - destruct y2; unfold exact, Exact_T.
+    + f_equal. apply H. inversion H5; subst. assumption.
+    + inversion H5.
+  - destruct x2; unfold exact, Exact_T.
+    + f_equal. apply H. inversion H4; subst. assumption.
+    + inversion H4.
+  - destruct y2; unfold exact, Exact_T.
+    + f_equal. apply H. inversion H6; subst. assumption.
+    + inversion H6.
+  - destruct z2; unfold exact, Exact_T.
+    + f_equal. apply H. inversion H7; subst. assumption.
+    + inversion H7.
+Qed.
+
+(** *** Lub for TupleA
+
+    Pointwise on matching constructors; mismatched constructors return
+    [PairA Undefined Undefined] as a dummy. *)
+
+#[global] Instance Lub_TupleA (A : Type) `{Lub A} : Lub (TupleA A) :=
+  fun t1 t2 =>
+    match t1, t2 with
+    | PairA x1 y1,      PairA x2 y2      => PairA   (lub x1 x2) (lub y1 y2)
+    | TripleA x1 y1 z1, TripleA x2 y2 z2 => TripleA (lub x1 x2) (lub y1 y2) (lub z1 z2)
+    | _, _                               => PairA Undefined Undefined
+    end.
+
+#[global] Instance LubLaw_TupleA (A : Type)
+  `{LDA : LessDefined A, Reflexive A less_defined, LBA : Lub A, @LubLaw _ LBA LDA} :
+  LubLaw (TupleA A).
+Proof.
+  split.
+  - repeat invert_clear 1; repeat constructor; apply lub_least_upper_bound; auto.
+  - invert_clear 1. invert_clear H1.
+    invert_clear H1; invert_clear H2; repeat constructor; apply lub_upper_bound_l; eauto.
+  - invert_clear 1. invert_clear H1.
+    invert_clear H1; invert_clear H2; repeat constructor; apply lub_upper_bound_r; eauto.
+Qed.
