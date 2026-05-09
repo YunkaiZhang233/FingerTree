@@ -81,6 +81,29 @@ Tactic Notation "invert_clear" integer(n) :=
   end.
 
 (* ================================================================= *)
+(** ** Shared utilities (mirrors ImplicitQueue.v preamble)             *)
+(* ================================================================= *)
+
+Lemma make_partial_order A (R : A -> A -> Prop) `{PreOrder A R} :
+  (forall (x y : A), R x y -> R y x -> x = y) -> PartialOrder eq R.
+Proof.
+  intros.
+  unfold PartialOrder, relation_equivalence, predicate_equivalence, pointwise_lifting,
+    relation_conjunction, predicate_intersection, pointwise_extension, Basics.flip.
+  split.
+  - destruct 1. split; reflexivity.
+  - intros [ H1 H2 ]. apply H0; auto.
+Qed.
+
+Lemma LessDefined_T_antisym A `{LessDefined A} :
+  (forall (x y : A), x `less_defined` y -> y `less_defined` x -> x = y) ->
+  forall (x y : T A), x `less_defined` y -> y `less_defined` x -> x = y.
+Proof.
+  intro. repeat invert_clear 1; try f_equal; auto.
+Qed.
+#[global] Hint Resolve LessDefined_T_antisym : core.
+
+(* ================================================================= *)
 (** ** Section 1: Pure Data Structure                                  *)
 (* ================================================================= *)
  
@@ -292,4 +315,179 @@ Fixpoint toListWith {A B : Type} (f : A -> list B) (s : Seq A) : list B :=
   end.
  
 Definition toList {A : Type} (s : Seq A) : list A :=
-  toListWith (fun x => x :: nil) s.  
+  toListWith (fun x => x :: nil) s.
+
+(* ================================================================= *)
+(** ** Section 2: Approximation Types                                  *)
+(* ================================================================= *)
+
+(** *** DigitA — approximated digit
+
+    Mirrors [Digit] but with each element wrapped in [T] so that
+    individual elements can be marked as undefined (not demanded).
+    There is no [DigitBot] constructor: the "no demand on this digit
+    slot" level of approximation is provided by [T (DigitA A)] in
+    [SeqA], where [Undefined] represents zero demand on the whole
+    digit.
+
+    This follows the same pattern as [FrontA]/[RearA] in ImplicitQueue.v,
+    which use [T A] fields rather than a dedicated bottom constructor. *)
+
+Inductive DigitA (A : Type) : Type :=
+| OneA   : T A -> DigitA A
+| TwoA   : T A -> T A -> DigitA A
+| ThreeA : T A -> T A -> T A -> DigitA A.
+
+#[global] Hint Constructors DigitA : core.
+
+Arguments OneA   {A}.
+Arguments TwoA   {A}.
+Arguments ThreeA {A}.
+
+(** *** LessDefined for DigitA
+
+    Approximation order: pointwise on matching constructors.
+    Different constructors are incomparable — there is no "bot" row. *)
+
+Inductive LessDefined_DigitA A `{LessDefined A} : LessDefined (DigitA A) :=
+| LessDefined_OneA x1 x2 :
+    x1 `less_defined` x2 ->
+    OneA x1 `less_defined` OneA x2
+| LessDefined_TwoA x1 x2 y1 y2 :
+    x1 `less_defined` x2 -> y1 `less_defined` y2 ->
+    TwoA x1 y1 `less_defined` TwoA x2 y2
+| LessDefined_ThreeA x1 x2 y1 y2 z1 z2 :
+    x1 `less_defined` x2 -> y1 `less_defined` y2 -> z1 `less_defined` z2 ->
+    ThreeA x1 y1 z1 `less_defined` ThreeA x2 y2 z2.
+
+#[global] Hint Constructors LessDefined_DigitA : core.
+#[global] Existing Instance LessDefined_DigitA.
+
+Lemma LessDefined_DigitA_refl A `{LessDefined A} :
+  (forall (x : A), x `less_defined` x) ->
+  forall (d : DigitA A), d `less_defined` d.
+Proof.
+  destruct d;
+    repeat match goal with t : T A |- _ => destruct t end;
+    auto.
+Qed.
+#[global] Hint Resolve LessDefined_DigitA_refl : core.
+
+#[global] Instance Reflexive_LessDefined_DigitA A `{LessDefined A, Reflexive A less_defined} :
+  Reflexive (@less_defined (DigitA A) _).
+Proof.
+  unfold Reflexive. auto.
+Qed.
+
+Lemma LessDefined_DigitA_trans A `{LessDefined A} :
+  (forall (x y z : A), x `less_defined` y -> y `less_defined` z -> x `less_defined` z) ->
+  forall (x y z : DigitA A),
+    x `less_defined` y -> y `less_defined` z -> x `less_defined` z.
+Proof.
+  intro.
+  repeat invert_clear 1;
+    repeat match goal with
+      | H : ?x `less_defined` ?y |- _ => invert_clear H
+      end;
+    repeat constructor; eauto.
+Qed.
+#[global] Hint Resolve LessDefined_DigitA_trans : core.
+
+#[global] Instance Transitive_LessDefined_DigitA A `{LessDefined A, Transitive A less_defined} :
+  Transitive (@less_defined (DigitA A) _).
+Proof.
+  unfold Transitive. eauto.
+Qed.
+
+#[global] Instance PreOrder_LessDefined_DigitA A `{LDA : LessDefined A, PreOrder A LDA} :
+  PreOrder (@less_defined (DigitA A) _).
+Proof.
+  destruct H. constructor; eauto.
+Qed.
+
+Lemma LessDefined_DigitA_antisym A `{LessDefined A} :
+  (forall (x y : A), x `less_defined` y -> y `less_defined` x -> x = y) ->
+  forall (x y : DigitA A),
+    x `less_defined` y -> y `less_defined` x -> x = y.
+Proof.
+  intro.
+  repeat inversion_clear 1;
+    repeat match goal with
+      | H : ?x `less_defined` ?y |- _ => invert_clear H
+      end;
+    f_equal; eauto.
+Qed.
+#[global] Hint Resolve LessDefined_DigitA_antisym : core.
+
+#[global] Instance PartialOrder_LessDefined_DigitA A
+  `{LessDefined A, PartialOrder A eq less_defined} :
+  PartialOrder eq (@less_defined (DigitA A) _).
+Proof.
+  apply make_partial_order. apply LessDefined_DigitA_antisym. firstorder.
+Qed.
+
+(** *** Exact for Digit / DigitA
+
+    Embeds a pure [Digit A] into [DigitA B].  Each element [x : A] maps
+    to [exact x : T B] via the [Exact_T] instance, which wraps it in
+    [Thunk]. *)
+
+#[global] Instance Exact_Digit A B `{Exact A B} : Exact (Digit A) (DigitA B) :=
+  fun d => match d with
+           | One x       => OneA   (exact x)
+           | Two x y     => TwoA   (exact x) (exact y)
+           | Three x y z => ThreeA (exact x) (exact y) (exact z)
+           end.
+
+(** [exact] produces maximal elements: if [exact d ⊑ dA] then [exact d = dA]. *)
+#[global] Instance ExactMaximal_Digit A B `{ExactMaximal B A} :
+  ExactMaximal (DigitA B) (Digit A).
+Proof.
+  intros dA []; unfold exact, Exact_Digit; inversion 1; subst; f_equal.
+  - destruct x2; unfold exact, Exact_T.
+    + f_equal. apply H. inversion H2; subst. assumption.
+    + inversion H2.
+  - destruct x2; unfold exact, Exact_T.
+    + f_equal. apply H. inversion H3; subst. assumption.
+    + inversion H3.
+  - destruct y2; unfold exact, Exact_T.
+    + f_equal. apply H. inversion H5; subst. assumption.
+    + inversion H5.
+  - destruct x2; unfold exact, Exact_T.
+    + f_equal. apply H. inversion H4; subst. assumption.
+    + inversion H4.
+  - destruct y2; unfold exact, Exact_T.
+    + f_equal. apply H. inversion H6; subst. assumption.
+    + inversion H6.
+  - destruct z2; unfold exact, Exact_T.
+    + f_equal. apply H. inversion H7; subst. assumption.
+    + inversion H7.
+Qed.
+
+(** *** Lub for DigitA
+
+    Pointwise on matching constructors; incompatible constructors
+    return [OneA Undefined] as a dummy (the LubLaw only requires
+    [x ⊑ lub x y] when [cobounded x y], which never holds for
+    different constructors). *)
+
+#[global] Instance Lub_DigitA (A : Type) `{Lub A} : Lub (DigitA A) :=
+  fun d1 d2 =>
+    match d1, d2 with
+    | OneA x1,         OneA x2         => OneA   (lub x1 x2)
+    | TwoA x1 y1,      TwoA x2 y2      => TwoA   (lub x1 x2) (lub y1 y2)
+    | ThreeA x1 y1 z1, ThreeA x2 y2 z2 => ThreeA (lub x1 x2) (lub y1 y2) (lub z1 z2)
+    | _, _                              => OneA Undefined
+    end.
+
+#[global] Instance LubLaw_DigitA (A : Type)
+  `{LDA : LessDefined A, Reflexive A less_defined, LBA : Lub A, @LubLaw _ LBA LDA} :
+  LubLaw (DigitA A).
+Proof.
+  split.
+  - repeat invert_clear 1; repeat constructor; apply lub_least_upper_bound; auto.
+  - invert_clear 1. invert_clear H1.
+    invert_clear H1; invert_clear H2; repeat constructor; apply lub_upper_bound_l; eauto.
+  - invert_clear 1. invert_clear H1.
+    invert_clear H1; invert_clear H2; repeat constructor; apply lub_upper_bound_r; eauto.
+Qed.  
