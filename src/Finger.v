@@ -1358,46 +1358,41 @@ Proof.
     invert_clear Happrox as [ | | ? ? ? ? ? ? HfD HmD HrD ].
     subst. simpl.
 
-    (* Case split on t0 (middle field of outD) *)
-    invert_clear HmD as [ | mA ? HmA ].
+    destruct t0 as [ mA | ].
 
-    + (* t0 = Undefined — no demand on middle, no recursion *)
+    (* Thunk mA: recursive call *)
+    {
       simpl.
+      invert_clear HmD as [| ? ? HmA].
+      mgo_.
+      apply optimistic_thunk_go. mgo_.
+      apply optimistic_thunk_go. mgo_.
+      apply optimistic_thunk_go. mgo_.
+      eapply optimistic_mon.
+      {
+        change (((fun m0 => fconsA' m0 (Thunk (PairA (exact b) (exact c)))) $! Tick.val (fconsD' (Pair b c) m mA))) with (fconsA (exact (Pair b c)) (Tick.val (fconsD' (Pair b c) m mA))).
+        eapply IH; try eauto. typeclasses eauto.
+      }
+      {
+        intros ? ? [Hout Hcost]. keep_mgo_.
+        (* field-level goals: use HfD, HrD, Hout, Hcost *)
+        destruct t as [ [ | | ] | ];
+                  try (invert_clear HfD; invert_clear H);
+                  simpl; repeat constructor; eauto. reflexivity.
+      }
+    }
+
+    (* Undefined — no recursion, forcing is vacuous *)
+    {
+      simpl.
+      mgo_.
+      apply optimistic_thunk_go. mgo_.
+      apply optimistic_thunk_go. mgo_.
+      apply optimistic_thunk_go. mgo_.
       admit.
-
-    + (* t0 = Thunk mA — recursive call fires *)
-      specialize (IH _ _ _ _ mA HmA).
-
-      (* Reveal the recursive result shape *)
-      revert IH.
-      simpl.
-      destruct (Tick.val (fconsD' (Pair b c) m mA)) as [ sD' | ] eqn:EfconsD'.
-
-      * (* Thunk sD' — recursive call returned a value *)
-        intro IH.
-
-        (* Now need to step through fconsA monadic computation
-           and use IH at the recursive forcing call *)
-
-        (* Step through monadic layers *)
-        mgo_.
-        (* apply optimistic_thunk_go; mgo_. — repeat as needed *)
-        (* At the recursive call: *)
-        (* eapply optimistic_mon; [ eassumption | ]. *)
-        (* After recursive call: *)
-        (* intros. keep_mgo_. *)
-
-        (* Field-level goals from HfD, HrD *)
-        (* destruct t as [ [ | | ] | ];
-           try (invert_clear HfD; invert_clear H);
-           ... *)
-
-        admit.
-
-      * (* Undefined — recursive call returned Undefined *)
-        intro IH.
-        admit.
+    }
   }
+
 Admitted.
 
 Corollary fconsD_spec (A : Type) :
