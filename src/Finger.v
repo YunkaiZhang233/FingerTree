@@ -1409,173 +1409,178 @@ Proof.
   intros. eapply fconsD'_spec; eauto.
 Qed.
 
-(** *** snoc — insert at the rear
+Class Debitable (A : Type) := debt : A -> nat.
 
-    Symmetric to [cons].  Overflow on the rear digit [Three a b c]
-    bundles [a] and [b] into [Pair a b] and snocs it into the middle,
-    keeping [Two c x] as the new rear. *)
+#[global] Instance Debitable_T (A : Type) `{Debitable A} : Debitable (T A) :=
+  fun xD => match xD with
+            | Thunk x => debt x
+            | Undefined => 0
+            end.
 
-Fixpoint snoc {A : Type} (s : Seq A) (x : A) : Seq A :=
-  match s with
-  | Nil              => Unit x
-  | Unit y           => More (One y) Nil (One x)
-  | More f m (One a)       => More f m (Two a x)
-  | More f m (Two a b)     => More f m (Three a b x)
-  | More f m (Three a b c) => More f (snoc m (Pair a b)) (Two c x)
-  end.
- 
-(** *** head — peek at the front element *)
- 
-Definition head {A : Type} (s : Seq A) : option A :=
-  match s with
-  | Nil                    => None
-  | Unit x                 => Some x
-  | More (One x) _ _       => Some x
-  | More (Two x _) _ _     => Some x
-  | More (Three x _ _) _ _ => Some x
-  end.
- 
-(** *** last — peek at the rear element *)
-
-Definition last {A : Type} (s : Seq A) : option A :=
-  match s with
-  | Nil                    => None
-  | Unit x                 => Some x
-  | More _ _ (One x)       => Some x
-  | More _ _ (Two _ x)     => Some x
-  | More _ _ (Three _ _ x) => Some x
+Definition safe_DigitA {A : Type} (dA : DigitA A) : nat :=
+  match dA with
+  | OneA _ => 0
+  | TwoA _ _ => 1
+  | ThreeA _ _ _ => 0
   end.
 
-(** *** Non-recursive spine helpers
+#[global] Instance Debitable_SeqA : forall (A : Type), Debitable (SeqA A) :=
+  fix debt_SeqA (A : Type) (sA : SeqA A) :=
+    match sA with
+    | NilA => 0
+    | UnitA _ => 0
+    | MoreA fD mD rD =>
+        T_rect _ safe_DigitA 1 fD +
+        @Debitable_T _ (debt_SeqA _) mD +
+        T_rect _ safe_DigitA 1 rD
+    end.
 
-    These four O(1) functions enable [uncons]/[unsnoc] to avoid a
-    recursive spine removal when the head (or last) tuple is a [Triple].
+Ltac unfold_debt := 
+  unfold debt at 1; simpl Debitable_T; simpl Debitable_SeqA; 
+  simpl safe_DigitA; simpl T_rect.
 
-    [chop] / [chopLast] trim a [Triple] to a [Pair] by dropping the
-    first or last element respectively.  They are only ever called on
-    [Triple]s; the [Pair] branch is unreachable but needed for totality.
+Lemma fconsD'_cost : forall (A B : Type) `{LessDefined B, Exact A B}
+    (x : A) (s : Seq A) (outD : SeqA B),
+    outD `is_approx` fcons x s ->
+    let inM := fconsD' x s outD in
+    let cost := Tick.cost inM in
+    let inD := Tick.val inM in
+    debt inD + cost <= 2 + debt outD.
+Proof.
+  intros A B LDB EAB x s. revert A x s B LDB EAB.
+  apply (fcons_ind (fun (A : Type) (x : A) (s : Seq A) (s' : Seq A) =>
+    forall B LDB EAB outD,
+      outD `is_approx` s' ->
+      let inM := fconsD' x s outD in
+      let cost := Tick.cost inM in
+      let inD := Tick.val inM in
+      debt inD + cost <= 2 + debt outD)).
+  
+  (* Nil: fcons x Nil = Unit x
+       inD = Thunk NilA, cost = 1
+       debt(Thunk NilA) + 1 = 0 + 1 = 1 ≤ 2 + debt(UnitA _) = 2 + 0 *)
+  {
+    intros A x B LDB EAB outD Happrox.
+    destruct outD; try (invert_clear Happrox; fail).
+    simpl. lia.
+  }
 
-    [map1] / [mapLast] apply [f] to only the first (or last) element of
-    a [Seq], without touching the spine.  They are O(1) because they
-    match only the outermost constructor. *)
+  (* Unit y: fcons x (Unit y) = More (One x) Nil (One y)
+       inD = Thunk (UnitA yD), cost = 1
+       debt(UnitA yD) + 1 = 0 + 1 = 1 ≤ 2 + debt(MoreA fD mD rD) *)
+  {
+    intros A x y B LDB EAB outD Happrox.
+    destruct outD; try (invert_clear Happrox; fail).
+    simpl. lia.
+  }
 
-Definition chop {A : Type} (t : Tuple A) : Tuple A :=
-  match t with
-  | Triple _ y z => Pair y z
-  | p            => p
-  end.
+  (* One a: fcons x (More (One a) m r) = More (Two x a) m r
+       inD = Thunk (MoreA (Thunk (OneA aD)) mD rD), cost = 1
+       safe(OneA) = 0, so debt contribution from front = 0
+       Need: 0 + debt(mD) + safe(rD) + 1 ≤ 2 + safe(fD) + debt(mD) + safe(rD) *)
+  {
+    intros A x a m r B LDB EAB outD Happrox.
+    destruct outD; try (invert_clear Happrox; fail).
+    simpl.
+    destruct t as [ [ | | ] | ]; simpl; sauto unfold:debt.
+  }
 
-Definition chopLast {A : Type} (t : Tuple A) : Tuple A :=
-  match t with
-  | Triple a b _ => Pair a b
-  | p            => p
-  end.
+  (* Two a b: fcons x (More (Two a b) m r) = More (Three x a b) m r
+       inD = Thunk (MoreA (Thunk (TwoA aD bD)) mD rD), cost = 1
+       safe(TwoA) = 1, so debt contribution from front = 1
+       Need: 1 + debt(mD) + safe(rD) + 1 ≤ 2 + safe(fD) + debt(mD) + safe(rD) *)
+  {
+    intros A x a b m r B LDB EAB outD Happrox.
+    destruct outD; try (invert_clear Happrox; fail).
+    simpl.
+    destruct t as [ [ | | ] | ]; simpl; sauto unfold:debt.
+  }
 
-Definition map1 {A : Type} (f : A -> A) (s : Seq A) : Seq A :=
-  match s with
-  | Nil                    => Nil
-  | Unit x                 => Unit (f x)
-  | More (One x) q u       => More (One (f x)) q u
-  | More (Two x y) q u     => More (Two (f x) y) q u
-  | More (Three x y z) q u => More (Three (f x) y z) q u
-  end.
+  (* Three a b c: RECURSIVE
+       fcons x (More (Three a b c) m r) = More (Two x a) (fcons (Pair b c) m) r
+       IH: debt(mD_in) + rc ≤ 2 + debt(mD_out)
+       Need: 0 + debt(mD_in) + safe(rD) + 1 + rc ≤ 2 + safe(fD) + debt(mD_out) + safe(rD) *)
+  {
+    intros A x a b c m r IH B LDB EAB outD Happrox.
+    destruct outD; try (invert_clear Happrox; fail).
+    invert_clear Happrox as [ | | ? ? ? ? ? ? HfD HmD HrD ].
+    simpl.
+    (* Need to case split on t0 (middle demand) for thunkD *)
+    destruct t0 as [ mA | ].
 
-Definition mapLast {A : Type} (f : A -> A) (s : Seq A) : Seq A :=
-  match s with
-  | Nil                    => Nil
-  | Unit x                 => Unit (f x)
-  | More u q (One x)       => More u q (One (f x))
-  | More u q (Two x y)     => More u q (Two x (f y))
-  | More u q (Three x y z) => More u q (Three x y (f z))
-  end.
+    (* Thunk mA — recursive call fires *)
+    {
+      simpl.
+      invert_clear HmD as [ | ? ? HmA ].
+      specialize (IH _ _ _ mA HmA).
+      simpl in IH.
+      (* Now IH : debt (Tick.val (fconsD' (Pair b c) m mA)) +
+                  Tick.cost (fconsD' (Pair b c) m mA) ≤ 2 + debt mA *)
+      destruct (Tick.val (fconsD' (Pair b c) m mA)) as [ sD | ].
+      (* Thunk sD *)
+      {
+        assert (HIH : debt sD + Tick.cost (fconsD' (Pair b c) m mA) <= 2 + debt mA).
+        { 
+          change (debt (Thunk sD)) with (debt sD) in IH.
+          change (debt (Thunk mA)) with (debt mA) in IH.
+          lia. 
+        }
+        destruct t as [ fA | ].
+        - (* Thunk fA *)
+          destruct fA as [ | | ].
+          + (* OneA — contradicts HfD *)
+            exfalso. invert_clear HfD. invert_clear H.
+          + (* TwoA — the valid case *)
+            cbn in *. lia.
+          + (* ThreeA — contradicts HfD *)
+            exfalso. invert_clear HfD. invert_clear H.
+        - (* Undefined *)
+          simpl debt in *.
+          destruct t1 as [ dA | ].
+          + destruct dA as [ | | ]; simpl in *. 
+            all: repeat unfold_debt.
+            all: change (Debitable_SeqA sD) with (debt sD) in *.
+            all: change (Debitable_SeqA mA) with (debt mA) in *.
+            all: lia.
+          + repeat unfold_debt.
+            change (Debitable_SeqA sD) with (debt sD) in *.
+            change (Debitable_SeqA mA) with (debt mA) in *.
+            lia.
+      }
 
-(** *** uncons — remove from the front (Claessen's [tail] + [more0])
 
-    [Three] / [Two]: shrink the front digit directly.  O(1).
-    [One]: front empties; refill from the spine via three sub-cases.
+    (* Undefined — thunkD returns bottom, no recursion *)
+    {
+      simpl.
+      destruct t as [ [ | | ] | ]; simpl; sauto unfold:debt.
+    }
+  }
 
-    Sub-cases when spine is non-empty (paper's [more0]):
-      - Head is [Pair a b]:     install [Two a b] (safe) as new front;
-          remove the pair by recursing into the spine.
-      - Head is [Triple a _ _]: install [One a] (dangerous) as new front;
-          transform the Triple to a Pair in-place with [map1 chop].
-          No recursive removal — O(1) for this case.
+  (* Undefined — middle not demanded, thunkD returns bottom (cost 0, val Undefined).
+   No recursion. debt reduces to safe(front) + safe(rear) on both sides.
+   Goal: safe(t1) + 1 ≤ 2 + safe(t) + safe(t1), i.e., 1 ≤ 2 + safe(t). Trivial. *)
+  {
+    simpl thunkD. simpl Tick.val. simpl Tick.cost.
+    destruct t as [ [ | | ] | ]; destruct t1 as [ [ | | ] | ]; simpl; lia.
+  }
+  }
+Qed.
 
-    The [Pair] case is the only recursion.  The [Triple] case is O(1)
-    because [map1] never enters the spine. *)
 
-Fixpoint uncons {A : Type} (s : Seq A) : option (A * Seq A) :=
-  match s with
-  | Nil => None
-  | Unit x => Some (x, Nil)
-  | More (Three x a b) m r => Some (x, More (Two a b) m r)
-  | More (Two x a) m r     => Some (x, More (One a) m r)
-  | More (One x) m r =>
-      match head m with
-      | None =>
-          match r with
-          | One a       => Some (x, Unit a)
-          | Two a b     => Some (x, More (One a) Nil (One b))
-          | Three a b c => Some (x, More (One a) Nil (Two b c))
-          end
-      | Some (Pair a b) =>
-          match uncons m with
-          | Some (_, m') => Some (x, More (Two a b) m' r)
-          | None         => None
-          end
-      | Some (Triple a _ _) =>
-          Some (x, More (One a) (map1 chop m) r)
-      end
-  end.
+Corollary fconsD_cost (A : Type) `{LessDefined A}
+    (x : A) (s : Seq A) (outD : SeqA A) :
+    outD `is_approx` fcons x s ->
+    let inM := fconsD x s outD in
+    let cost := Tick.cost inM in
+    let inD := Tick.val inM in
+    debt inD + cost <= 2 + debt outD.
+Proof.
+  intros. apply fconsD'_cost. auto.
+Qed.
 
-(** *** unsnoc — remove from the rear (symmetric to [uncons])
-
-    Sub-cases when spine is non-empty:
-      - Last is [Pair a b]:     install [Two a b] (safe) as new rear;
-          remove by recursing.
-      - Last is [Triple _ _ c]: install [One c] (dangerous) as new rear;
-          transform the Triple to a Pair in-place with [mapLast chopLast]. *)
-
-Fixpoint unsnoc {A : Type} (s : Seq A) : option (Seq A * A) :=
-  match s with
-  | Nil => None
-  | Unit x => Some (Nil, x)
-  | More f m (Three a b x) => Some (More f m (Two a b), x)
-  | More f m (Two a x)     => Some (More f m (One a), x)
-  | More f m (One x) =>
-      match last m with
-      | None =>
-          match f with
-          | One a       => Some (Unit a, x)
-          | Two a b     => Some (More (One a) Nil (One b), x)
-          | Three a b c => Some (More (Two a b) Nil (One c), x)
-          end
-      | Some (Pair a b) =>
-          match unsnoc m with
-          | Some (m', _) => Some (More f m' (Two a b), x)
-          | None         => None
-          end
-      | Some (Triple _ _ c) =>
-          Some (More f (mapLast chopLast m) (One c), x)
-      end
-  end.
- 
-(** *** Derived convenience functions *)
- 
-Definition tail {A : Type} (s : Seq A) : option (Seq A) :=
-  match uncons s with
-  | Some (_, s') => Some s'
-  | None         => None
-  end.
- 
-Definition init {A : Type} (s : Seq A) : option (Seq A) :=
-  match unsnoc s with
-  | Some (s', _) => Some s'
-  | None         => None
-  end.
 
 (* ================================================================= *)
-(** ** Section 3: Demand Functions                                     *)
+(** ** Auxiliary Definitions                                     *)
 (* ================================================================= *)
 
 (* The empty case *)
@@ -1607,140 +1612,6 @@ Proof.
   unfold emptyA. mgo_.
 Qed.
 
-(** *** map1D' — demand back-propagation through [map1 chop]
-
-    [map1 chop m] applies [chop] to the first element of [m]'s front digit.
-    [chop (Triple _ b c) = Pair b c] (drops first slot) and
-    [chop (Pair a b) = Pair a b] (identity).
-
-    Given output demand [mD] on [map1 chop m], [map1D' m mD] returns the
-    corresponding demand on [m].  For a [Triple] front element, a demand
-    [PairA bD cD] on the [chop] result becomes [TripleA Undefined bD cD]
-    on the original triple (the dropped slot is not needed).
-    For a [Pair] front element, the demand passes through unchanged. *)
-
-(* Definition map1D' {A A : Type} (m : Seq (Tuple A)) (mD : T (SeqA (TupleA A)))
-    : T (SeqA (TupleA A)) :=
-  let chop_back (t : Tuple A) (tD : T (TupleA A)) : T (TupleA A) :=
-    match t with
-    | Triple _ _ _ => match tD with
-                      | Thunk (PairA xD yD) => Thunk (TripleA Undefined xD yD)
-                      | _                   => Undefined
-                      end
-    | Pair _ _     => tD
-    end in
-  let front_back (t : Tuple A) (fD : T (DigitA (TupleA A))) : T (DigitA (TupleA A)) :=
-    match fD with
-    | Thunk (OneA tD)           => Thunk (OneA   (chop_back t tD))
-    | Thunk (TwoA tD rest)      => Thunk (TwoA   (chop_back t tD) rest)
-    | Thunk (ThreeA tD r1 r2)   => Thunk (ThreeA (chop_back t tD) r1 r2)
-    | _                         => fD
-    end in
-  match mD with
-  | Undefined => Undefined
-  | Thunk mDA =>
-      Thunk (match m, mDA with
-             | Nil,                _              => mDA
-             | Unit t,             UnitA tD       => UnitA (chop_back t tD)
-             | More (One t) _ _,   MoreA fD sp rD => MoreA (front_back t fD) sp rD
-             | More (Two t _) _ _, MoreA fD sp rD => MoreA (front_back t fD) sp rD
-             | More (Three t _ _) _ _, MoreA fD sp rD =>
-                 MoreA (front_back t fD) sp rD
-             | _,                  _              => mDA
-             end)
-  end.
-
-(** *** mapLastD' — demand back-propagation through [mapLast chopLast]
-
-    Symmetric to [map1D'].  [chopLast (Triple a b _) = Pair a b] drops the
-    last slot; [chopLast (Pair a b) = Pair a b] is the identity.
-    A demand [PairA aD bD] on the [chopLast] result becomes
-    [TripleA aD bD Undefined] on the original triple. *)
-
-Definition mapLastD' {A B : Type} (m : Seq (Tuple A)) (mD : T (SeqA (TupleA B)))
-    : T (SeqA (TupleA B)) :=
-  let chopLast_back (t : Tuple A) (tD : T (TupleA B)) : T (TupleA B) :=
-    match t with
-    | Triple _ _ _ => match tD with
-                      | Thunk (PairA xD yD) => Thunk (TripleA xD yD Undefined)
-                      | _                   => Undefined
-                      end
-    | Pair _ _     => tD
-    end in
-  let rear_back (t : Tuple A) (rD : T (DigitA (TupleA B))) : T (DigitA (TupleA B)) :=
-    match rD with
-    | Thunk (OneA tD)         => Thunk (OneA   (chopLast_back t tD))
-    | Thunk (TwoA r1 tD)      => Thunk (TwoA   r1 (chopLast_back t tD))
-    | Thunk (ThreeA r1 r2 tD) => Thunk (ThreeA r1 r2 (chopLast_back t tD))
-    | _                       => rD
-    end in
-  match mD with
-  | Undefined => Undefined
-  | Thunk mDA =>
-      Thunk (match m, mDA with
-             | Nil,                    _              => mDA
-             | Unit t,                 UnitA tD       => UnitA (chopLast_back t tD)
-             | More _ _ (One t),       MoreA fD sp rD => MoreA fD sp (rear_back t rD)
-             | More _ _ (Two _ t),     MoreA fD sp rD => MoreA fD sp (rear_back t rD)
-             | More _ _ (Three _ _ t), MoreA fD sp rD => MoreA fD sp (rear_back t rD)
-             | _,                      _              => mDA
-             end)
-  end.
-
-(** *** consD' — demand function for [cons x s]
-
-    Mirrors [cons] case by case, back-propagating the output demand [outD]
-    on [cons x s] to produce the demanded approximation of [s].
-    The element [x] is always demanded exactly: [exact x].
-
-    The cascade case [More (Three a b c) m r] is the only recursive one:
-    [cons (Pair b c) m] is demanded via [thunkD], and the resulting demand
-    on [Pair b c] supplies [bD] and [cD] for the returned [ThreeA aD bD cD].
-
-    Follows [pushD'] in ImplicitQueue.v; the extra cases are [Two] / [Three]
-    front digits, which are non-recursive (no cascade). *)
-
-Fixpoint consD' (A B : Type) `{Exact A B} (x : A) (s : Seq A) (outD : SeqA B) :
-    Tick (T (SeqA B)) :=
-  Tick.tick >>
-  match s with
-  | Nil =>
-      Tick.ret (Thunk NilA)
-  | Unit y =>
-      let yD :=
-        match outD with
-        | MoreA _ _ (Thunk (OneA yD)) => yD
-        | _                           => bottom
-        end in
-      Tick.ret (Thunk (UnitA yD))
-  | More (One a) m r =>
-      let '(aD, mD, rD) :=
-        match outD with
-        | MoreA (Thunk (TwoA _ aD)) mD rD => (aD, mD, rD)
-        | _                               => bottom
-        end in
-      Tick.ret (Thunk (MoreA (Thunk (OneA aD)) mD rD))
-  | More (Two a b) m r =>
-      let '(aD, bD, mD, rD) :=
-        match outD with
-        | MoreA (Thunk (ThreeA _ aD bD)) mD rD => (aD, bD, mD, rD)
-        | _                                    => bottom
-        end in
-      Tick.ret (Thunk (MoreA (Thunk (TwoA aD bD)) mD rD))
-  | More (Three a b c) m r =>
-      let '(aD, mD, rD) :=
-        match outD with
-        | MoreA (Thunk (TwoA _ aD)) mD rD => (aD, mD, rD)
-        | _                               => bottom
-        end in
-      let+ mD_in := thunkD (consD' (Pair b c) m) mD in
-      Tick.ret (Thunk (MoreA (Thunk (ThreeA aD (exact b) (exact c))) mD_in rD))
-  end.
-
-Definition consD (A : Type) : A -> Seq A -> SeqA A -> Tick (T (SeqA A)) :=
-  consD'.
- *)
-
 
 (* Final Verification *)
 
@@ -1763,6 +1634,23 @@ Proof.
   intros Hy Hx; inversion Hx; cbn; auto.
 Qed.
 
+Definition unconsD' (A B : Type) (s : Seq A) (outD : option (T B * T (SeqA B)))
+    : Tick (T (SeqA B)) :=
+  Tick.tick >> Tick.ret (Thunk NilA).  (* placeholder *)
+
+Definition unconsD (A : Type) (s : Seq A) (outD : option (T A * T (SeqA A)))
+    : Tick (T (SeqA A)) :=
+  unconsD' s outD.
+
+From Clairvoyance Require Import Core.
+
+(* Placeholder for clairvoyant uncons *)
+Definition unconsA (A : Type) (q : T (SeqA A)) : M (option (T A * T (SeqA A))) :=
+  tick >> ret (None).  (* placeholder *)
+
+Definition uncons_placeholder {A : Type} (s : Seq A) : option (A * Seq A) :=
+  None.
+
 
 Section Physicist'sArgument.
 
@@ -1774,35 +1662,35 @@ Section Physicist'sArgument.
   Inductive op : Type :=
   | Empty
   | Cons (x : A)
-  | Tail.
+  | Uncons.
 
   #[export] Instance eval : Eval op value :=
     fun op args => match op, args with
                 | Empty, [] => [empty]
                 | Cons x, [q] => [fcons x q]
-                (* | Tail, [q] => match tail q with
-                             | Some q' => [q']
-                             | _ => []
-                             end *)
-                | Tail, [q] => [] (* PlaceHolder *)
+                | Uncons, [q] => [q]  (* placeholder *)
                 | _, _ => []
                 end.
   
-  (* TODO: Change amount of operational budget!! *)
   #[export] Instance budget : Budget op value :=
-    fun _ _ => 3.
+    fun _ _ => 2.
+  
   
   #[export] Instance exec : Exec op valueA :=
     fun o args => match o, args with
                | Empty, [] => let! q := emptyA in ret [Thunk q]
-               | Cons x, [q] => let! q' := consA q (Thunk x) in ret [Thunk q']
-               (* | Tail, [q] => let! p := tailA q in
-                            match p with
-                            | Some (Thunk (pairA x q)) => ret [q]
-                            | Some Undefined => ret [Undefined]
-                            | _ => ret []
-                            end *)
-               | Tail, [q] => ret [] (* PlaceHolder *)
+               | Cons x, [q] => let! q' := fconsA (exact x) q in ret [Thunk q']
+               | Uncons, [q] => ret [Thunk q]  (* placeholder *)
                | _, _ => ret []
                end.
+  
+  #[export] Instance wf : WellFormed value := fun _ => True.
+
+  Lemma wf_eval : WfEval.
+  Proof using A.
+    unfold WfEval. destruct o, vs; repeat constructor.
+    - simpl. destruct vs; repeat constructor.
+    - simpl. repeat constructor. simpl.
+  Qed.
+  #[export] Existing Instance wf_eval.
 End Physicist'sArgument.
