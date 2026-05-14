@@ -1578,6 +1578,129 @@ Proof.
   intros. apply fconsD'_cost. auto.
 Qed.
 
+(**
+==============
+Head Operations
+
+head (Unit x) = Some x
+head (More (One x) _ _ ) = Some x
+head (More (Two x _) _ _ ) = Some x
+head (More (Three x _ _) _ _ ) = Some x
+*)
+Definition head {A : Type} (s : Seq A) : option A :=
+  match s with
+  | Nil => None
+  | Unit x => Some x
+  | More (One x) _ _ => Some x
+  | More (Two x _) _ _ => Some x
+  | More (Three x _ _) _ _ => Some x
+  end.
+
+
+(* Demand function *)
+Definition headD' {A B : Type} `{Exact A B} (s : Seq A) (outD : option (T B))
+    : Tick (T (SeqA B)) :=
+  Tick.tick >>
+  match s, outD with
+  | Nil, None => Tick.ret (Thunk NilA)
+  | Unit x, Some xD =>
+      Tick.ret (Thunk (UnitA xD))
+  | More (One x) m r, Some xD =>
+      Tick.ret (Thunk (MoreA (Thunk (OneA xD)) Undefined Undefined))
+  | More (Two x _) m r, Some xD =>
+      Tick.ret (Thunk (MoreA (Thunk (TwoA xD Undefined)) Undefined Undefined))
+  | More (Three x _ _) m r, Some xD =>
+      Tick.ret (Thunk (MoreA (Thunk (ThreeA xD Undefined Undefined)) Undefined Undefined))
+  | _, _ => bottom
+  end.
+
+(* Specialization *)
+Definition headD (A : Type) : Seq A -> option (T A) -> Tick (T (SeqA A)) :=
+  headD'.
+
+(* Functional correctness *)
+Lemma headD'_approx : forall (A B : Type)
+    `{LDB : LessDefined B, !Reflexive LDB, Exact A B}
+    (s : Seq A) (outD : option (T B)),
+    outD `is_approx` head s ->
+    Tick.val (headD' s outD) `is_approx` s.
+Proof.
+  intros. destruct s; simpl in *;
+  destruct outD.
+  - repeat constructor.
+  - simpl. repeat constructor; auto.
+  - simpl. repeat constructor; auto.
+    invert_clear H0. auto.
+  - constructor.
+  - destruct d; simpl; repeat constructor; invert_clear H0; auto.
+  - destruct d; simpl; repeat constructor; invert_clear H0; auto.
+Qed.
+
+Corollary headD_approx (A : Type) `{LDA : LessDefined A, !Reflexive LDA}
+    (s : Seq A) (outD : option (T A)) :
+    outD `is_approx` head s ->
+    Tick.val (headD s outD) `is_approx` s.
+Proof.
+  eapply headD'_approx.
+Qed.
+
+(* Cost — trivial, cost is always 1, debt of input ≤ 2 + debt of output *)
+Lemma headD'_cost : forall (A B : Type) `{Exact A B}
+    (s : Seq A) (outD : option (T B)),
+    Tick.cost (headD' s outD) <= 1.
+Proof.
+  intros. destruct s; destruct outD; simpl; try lia.
+  all: destruct d; simpl; lia.
+Qed.
+
+Corollary headD_cost (A : Type) `{Exact A}
+    (s : Seq A) (outD : option (T A)) :
+    Tick.cost (headD s outD) <= 1.
+Proof.
+  eapply headD'_cost.
+Qed.
+
+Definition headA (A : Type) (q : T (SeqA A)) : M (option (T A)) :=
+  tick >> match q with
+         | Thunk (UnitA x) => ret (Some x)
+         | Thunk (MoreA (Thunk (OneA x)) _ _) => ret (Some x)
+         | Thunk (MoreA (Thunk (TwoA x _)) _ _) => ret (Some x)
+         | Thunk (MoreA (Thunk (ThreeA x _ _)) _ _) => ret (Some x)
+         | _ => ret None
+         end.
+
+Lemma headD'_spec : forall (A B : Type)
+    `{LDB : LessDefined B, !Reflexive LDB, Exact A B}
+    (s : Seq A) (outD : option (T B)),
+    outD `is_approx` head s ->
+    forall sD, sD = Tick.val (headD' s outD) ->
+      let dcost := Tick.cost (headD' s outD) in
+      headA sD [[ fun out cost =>
+                     outD `less_defined` out /\ cost <= dcost ]].
+Proof.
+  intros A B LDB RLDB EAB s outD Happrox sD HsD dcost.
+  destruct s; destruct outD; simpl in *;
+    try (invert_clear Happrox; fail).
+  - (* Nil, None *)
+    subst. unfold headA. mgo_.
+  - (* Unit a, Some t *)
+    subst. unfold headA. mgo_.
+  - (* More d s d0, Some t *)
+    destruct d; subst; unfold headA; simpl; mgo_.
+  - destruct d; subst; simpl; unfold headA; mgo_. 
+Qed.
+
+Corollary headD_spec : forall (A : Type) `{LDA : LessDefined A, !Reflexive LDA}
+    (s : Seq A) (outD : option (T A)),
+    outD `is_approx` head s ->
+    forall sD, sD = Tick.val (headD s outD) ->
+      let dcost := Tick.cost (headD s outD) in
+      headA sD [[ fun out cost =>
+                     outD `less_defined` out /\ cost <= dcost ]].
+Proof.
+  intros.  
+  apply headD'_spec; auto.
+Qed.
 
 (* ================================================================= *)
 (** ** Auxiliary Definitions                                     *)
