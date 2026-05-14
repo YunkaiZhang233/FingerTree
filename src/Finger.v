@@ -1388,12 +1388,14 @@ Proof.
       mgo_.
       apply optimistic_thunk_go. mgo_.
       apply optimistic_thunk_go. mgo_.
-      apply optimistic_thunk_go. mgo_.
-      admit.
+      apply optimistic_skip. mgo_.
+      
+      destruct t as [ [ | | ] | ];
+      try (invert_clear HfD; invert_clear H);
+      simpl; repeat constructor; try assumption; reflexivity.
     }
   }
-
-Admitted.
+Qed.
 
 Corollary fconsD_spec (A : Type) :
   forall `{LDA : LessDefined A, !Reflexive LDA}
