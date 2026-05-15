@@ -406,6 +406,8 @@ Proof.
     invert_clear H1; invert_clear H2; repeat constructor; apply lub_upper_bound_r; eauto.
 Qed.
 
+
+
 (** *** TupleA — approximated spine tuple
 
     Mirrors [Tuple] exactly as [DigitA] mirrors [Digit]: each element
@@ -1439,6 +1441,97 @@ Ltac unfold_debt :=
   unfold debt at 1; simpl Debitable_T; simpl Debitable_SeqA; 
   simpl safe_DigitA; simpl T_rect.
 
+(* Helper for sub-addivitty *)
+Lemma safe_DigitA_lub_subadditive
+  (A : Type) `{LDA : LessDefined A, !Reflexive LDA, LBA : Lub A,
+                 !@LubLaw A LBA LDA}
+  (d1 d2 d : DigitA A) :
+  d1 `less_defined` d ->
+  d2 `less_defined` d ->
+  safe_DigitA (lub d1 d2) <= safe_DigitA d1 + safe_DigitA d2.
+Proof.
+  intros H1 H2. invert_clear H1; invert_clear H2; simpl; lia.
+Qed.  
+
+Definition safe_T {A : Type} (fD : T (DigitA A)) : nat :=
+  match fD with
+  | Thunk d => safe_DigitA d
+  | Undefined => 1
+  end.
+
+(* Then T_rect _ safe_DigitA 1 fD = safe_T fD, which 
+   Coq can verify by reflexivity, and Debitable_SeqA can use 
+   safe_T for clarity. But you don't need to refactor 
+   Debitable_SeqA, just use safe_T as a name in the lemma. *)
+
+Lemma safe_T_lub_subadditive
+  (A : Type) `{LDA : LessDefined A, !Reflexive LDA, LBA : Lub A,
+                 !@LubLaw A LBA LDA}
+  (f1 f2 fd : T (DigitA A)) :
+  f1 `less_defined` fd ->
+  f2 `less_defined` fd ->
+  safe_T (lub f1 f2) <= safe_T f1 + safe_T f2.
+Proof.
+  intros H1 H2.
+  invert_clear H1; invert_clear H2; simpl; try lia.
+  eapply safe_DigitA_lub_subadditive; eassumption.
+Qed.
+
+Lemma debt_SeqA_lub_subadditive :
+  forall (A : Type) (x : SeqA A),
+    forall `{LDA : LessDefined A, !Reflexive LDA, LBA : Lub A,
+              !@LubLaw A LBA LDA}
+           (y d : SeqA A),
+      x `less_defined` d ->
+      y `less_defined` d ->
+      debt (lub x y) <= debt x + debt y.
+Proof.
+  apply (SeqA_ind
+    (fun A x =>
+       forall `{LDA : LessDefined A, !Reflexive LDA, LBA : Lub A,
+                 !@LubLaw A LBA LDA}
+              (y d : SeqA A),
+         x `less_defined` d ->
+         y `less_defined` d ->
+         debt (lub x y) <= debt x + debt y)).
+  - (* NilA *)
+    intros A0 LDA0 RLDA0 LBA0 LLA0 y d Hx Hy.
+    invert_clear Hx. invert_clear Hy. simpl. sauto unfold:debt.
+  - (* UnitA *)
+    intros A0 xA LDA0 RLDA0 LBA0 LLA0 y d Hx Hy.
+    invert_clear Hx. invert_clear Hy. simpl. sauto unfold:debt.
+  - (* MoreA *)
+    intros A0 fx mx rx IH LDA0 RLDA0 LBA0 LLA0 y d Hx Hy.
+    (* Force d = MoreA fd md rd *)
+    invert_clear Hx as [ | | fd ? md ? rd ? Hfx Hmx Hrx ].
+    (* Force y = MoreA fy my ry *)
+    invert_clear Hy as [ | | fy ? my ? ry ? Hfy Hmy Hry ].
+    (* Simplify the lub and debt *)
+    simpl.
+    (* Goal looks like:
+       safe_T (lub fx fy) + Debitable_T (...) (lub mx my) + safe_T (lub rx ry)
+       <= (safe_T fx + Debitable_T (...) mx + safe_T rx)
+        + (safe_T fy + Debitable_T (...) my + safe_T ry)
+       Possibly with T_rect _ safe_DigitA 1 instead of safe_T. *)
+    change (T_rect _ safe_DigitA 1) with (@safe_T A0) in *.
+    (* Three sub-bounds *)
+    pose proof (@safe_T_lub_subadditive A0 _ _ _ _ fx fy f2 Hfx Hfy) as Bf.
+    pose proof (@safe_T_lub_subadditive A0 _ _ _ _ rx ry r2 Hrx Hry) as Br.
+    (* Spine: lift IH through T *)
+    assert (Bm : @Debitable_T _ (@Debitable_SeqA (TupleA A0)) (lub mx my)
+               <= @Debitable_T _ (@Debitable_SeqA (TupleA A0)) mx
+                + @Debitable_T _ (@Debitable_SeqA (TupleA A0)) my).
+    { 
+      invert_clear Hmx; invert_clear Hmy; simpl; try lia.
+      (* mx = Thunk mxA, my = Thunk myA, md = Thunk mdA, with mxA, myA ≤ mdA *)
+      invert_clear IH as [ ? IH' | ].
+      eapply IH'; eauto; typeclasses eauto. 
+    }
+    repeat unfold_debt.
+    change (T_rect (fun _ : T (DigitA A0) => nat) safe_DigitA 1) with (@safe_T A0) in *.
+    lia.
+Qed.
+
 Lemma fconsD'_cost : forall (A B : Type) `{LessDefined B, Exact A B}
     (x : A) (s : Seq A) (outD : SeqA B),
     outD `is_approx` fcons x s ->
@@ -1605,12 +1698,19 @@ Definition headD' {A B : Type} `{Exact A B} (s : Seq A) (outD : option (T B))
   | Nil, None => Tick.ret (Thunk NilA)
   | Unit x, Some xD =>
       Tick.ret (Thunk (UnitA xD))
+  | Unit x, None => Tick.ret (Thunk (UnitA Undefined))
   | More (One x) m r, Some xD =>
       Tick.ret (Thunk (MoreA (Thunk (OneA xD)) Undefined Undefined))
+  | More (One x) m r, None =>
+      Tick.ret (Thunk (MoreA (Thunk (OneA Undefined)) Undefined Undefined))
   | More (Two x _) m r, Some xD =>
       Tick.ret (Thunk (MoreA (Thunk (TwoA xD Undefined)) Undefined Undefined))
+  | More (Two x _) m r, None =>
+      Tick.ret (Thunk (MoreA (Thunk (TwoA Undefined Undefined)) Undefined Undefined))
   | More (Three x _ _) m r, Some xD =>
       Tick.ret (Thunk (MoreA (Thunk (ThreeA xD Undefined Undefined)) Undefined Undefined))
+  | More (Three x _ _) m r, None =>
+      Tick.ret (Thunk (MoreA (Thunk (ThreeA Undefined Undefined Undefined)) Undefined Undefined))
   | _, _ => bottom
   end.
 
@@ -1625,15 +1725,17 @@ Lemma headD'_approx : forall (A B : Type)
     outD `is_approx` head s ->
     Tick.val (headD' s outD) `is_approx` s.
 Proof.
-  intros. destruct s; simpl in *;
-  destruct outD.
-  - repeat constructor.
-  - simpl. repeat constructor; auto.
-  - simpl. repeat constructor; auto.
-    invert_clear H0. auto.
-  - constructor.
-  - destruct d; simpl; repeat constructor; invert_clear H0; auto.
-  - destruct d; simpl; repeat constructor; invert_clear H0; auto.
+  intros A B LDB RLDB EAB s outD Happrox.
+  destruct s as [ | a | d s' d0 ]; destruct outD as [ xD | ]; simpl in *.
+  - (* Nil, Some xD — bottom case, Happrox : Some xD ≤ None is impossible *)
+    invert_clear Happrox.
+  - (* Nil, None *) repeat constructor.
+  - (* Unit a, Some xD *) repeat constructor. invert_clear Happrox. assumption.
+  - (* Unit a, None *) repeat constructor.
+  - (* More d s' d0, Some xD *)
+    destruct d; repeat constructor; invert_clear Happrox; assumption.
+  - (* More d s' d0, None *)
+    destruct d; repeat constructor.
 Qed.
 
 Corollary headD_approx (A : Type) `{LDA : LessDefined A, !Reflexive LDA}
@@ -1967,8 +2069,72 @@ Qed.
     `{LDA : LessDefined A, PreOrder A LDA, LBA : Lub A, @LubLaw A LBA LDA} :
     @CvDemand op value valueA _ _ _ _.
   Proof using A.
-    admit.
-  Admitted.
+    rename H into PA. rename H0 into LLA.
+    assert (Reflexive LDA) as RA by (destruct PA; auto).
+    unfold CvDemand, cv_demand.
+    destruct o.
+    - (* Empty *)
+      simpl. destruct x.   (* destruct args *)
+      + (* args = [] *)
+        invert_clear 1. invert_clear H0. invert_clear 1. unfold emptyA. mgo_.
+      + (* args = _ :: _ *)
+        invert_clear 1. invert_clear 1. mgo_.
+    - (* FCons x *)
+      simpl. intro args0.
+      refine (match args0 with
+              | [] => _
+              | [q] => _
+              | _ => _
+              end); try solve [ invert_clear 1; invert_clear 1; mgo_ ].
+      invert_clear 1.
+      invert_clear H0.
+      intros n xD HxD.
+      (* HxD : {| cost := n; val := xD |} = demand (FCons x) [q] [outD] *)
+      unfold demand in HxD. simpl in HxD.
+      rename x0 into outD.
+      destruct (fconsD x q (forceD (bottom_of (exact (fcons x q))) outD))
+        as [n_inner qD] eqn:EfconsD.
+      simpl in HxD. invert_clear HxD.
+      mgo_.
+      eapply optimistic_mon; [ eapply fconsD_spec | ].
+      + eapply less_defined_forceD; [ apply bottom_is_least; reflexivity | eassumption ].
+      + rewrite EfconsD. reflexivity.
+      + intros out cost [Hout Hcost].
+        mgo_.
+        {
+          destruct outD as [ outA | ]; simpl in Hout.
+          - (* outD = Thunk outA *) 
+            constructor; exact Hout.
+          - (* outD = Undefined *) 
+            constructor.
+        }
+        {
+          rewrite EfconsD in Hcost. simpl in Hcost. lia.
+        }
+    - (* Head *)
+      simpl. intro args0.
+      refine (match args0 with
+              | [] => _
+              | [q] => _
+              | _ => _
+              end); try solve [ invert_clear 1; invert_clear 1; mgo_ ].
+      (* args = [q] *)
+      invert_clear 1.        (* Happrox : yD ≤ exact (eval Head [q]) = []. So yD = []. *)
+      intros n xD HxD.
+      unfold demand in HxD. simpl in HxD.
+      destruct (headD q None) as [n_inner qD] eqn:EheadD.
+      simpl in HxD. invert_clear HxD.
+      (* Goal: exec Head [qD] [[ fun yA m => [] ≤ yA ∧ m ≤ n_inner ]] *)
+      mgo_.
+      (* Now case-split on q to make headA reduce. *)
+      destruct q as [ | a | d s' d0 ]; simpl in EheadD; invert_clear EheadD.
+      + (* q = Nil: qD = Thunk NilA, headA (Thunk NilA) = tick >> ret None *)
+        unfold headA, headA'. mgo_.
+      + (* q = Unit a: qD = Thunk (UnitA Undefined) *)
+        unfold headA, headA'. mgo_.
+      + (* q = More d s' d0 *)
+        destruct d; unfold headA, headA'; simpl; mgo_.
+  Qed.
   #[export] Existing Instance cd.
 
   (* --- WellDefinedPotential: sub-additivity of lub + potential(bottom) = 0 --- *)
@@ -1977,25 +2143,16 @@ Qed.
     @WellDefinedPotential value valueA _ _.
   Proof using A.
     constructor.
-    - (* sub-additivity: debt(lub x y) ≤ debt(x) + debt(y).
-         This requires structural induction on SeqA, mirroring ImplicitQueue.v
-         lines 1660–1672 but with three digit variants (One, Two, Three) instead
-         of two (FOne, FTwo) and (RZero, ROne).
-         
-         Key cases:
-         - Both NilA / both UnitA: lub same shape, debt = 0. lia.
-         - Both MoreA fD mD rD vs fD' mD' rD':
-             debt(lub) = safe(lub fD fD') + debt(lub mD mD') + safe(lub rD rD')
-             Each safe(lub d1 d2) ≤ safe d1 + safe d2 (case-analyze on digits;
-             since lub requires common upper bound, both digits share constructor)
-             debt(lub mD mD') uses IH at type (TupleA A).
-         
-         The polymorphic recursion makes this trickier than ImplicitQueue's case;
-         a custom induction principle like SeqA_ind may be required. *)
-      admit.
+    - (* sub-additivity: debt(lub x y) ≤ debt(x) + debt(y). *)
+      red. invert_clear 1. invert_clear H1.
+      invert_clear H1; invert_clear H2; simpl; try lia.
+      eapply debt_SeqA_lub_subadditive; eassumption.
     - (* potential of bottom is zero *)
       red. simpl. lia.
-  Admitted.
+    Unshelve.
+    + destruct H; assumption.
+    + typeclasses eauto.
+  Qed.
   #[export] Existing Instance well_defined_potential.
 
   (* --- Helper lemmas for potential --- *)
