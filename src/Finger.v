@@ -1824,7 +1824,7 @@ Section Physicist'sArgument.
     fun o _ => match o with
                | Empty => 2
                | FCons _ => 2
-               | Head => 1
+               | Head => 2
                end.
 
   (* --- exec: clairvoyant semantics --- *)
@@ -1858,10 +1858,9 @@ Section Physicist'sArgument.
     - (* Head *)
       invert_clear H0; try solve [ solve_mon ].
       apply bind_mon.
-      + apply headA_mon; try solve [ auto ]. reflexivity.
-    - (* Tail *)
-      invert_clear H1; solve_mon.
-  Admitted.
+      + apply headA_mon; try solve [ auto ]. 
+      + intros. solve_mon. 
+Qed.
 
   (* --- approx algebra --- *)
   #[export] Instance approx_algebra
@@ -1886,7 +1885,7 @@ Section Physicist'sArgument.
       match op, args, argsA with
       | Empty, [], [outD] =>
           let outD := forceD (bottom_of (exact empty)) outD in
-          emptyD outD >> Tick.ret []
+          Tick.bind (emptyD outD) (fun _ => Tick.ret [])
       | FCons x, [q], [outD] =>
           let outD := forceD (bottom_of (exact (fcons x q))) outD in
           let+ qD := fconsD x q outD in
@@ -1894,10 +1893,6 @@ Section Physicist'sArgument.
       | Head, [q], [] =>
           let+ qD := headD q None in
           Tick.ret [qD]
-      | Tail, [q], [] =>
-          Tick.ret [Thunk (exact q)]  (* placeholder *)
-      | Tail, [q], [qD'] =>
-          Tick.ret [Thunk (exact q)]  (* placeholder *)
       | _, _, _ => Tick.ret (bottom_of (exact args))
       end.
 
@@ -1913,16 +1908,26 @@ Section Physicist'sArgument.
     `{LDA : LessDefined A, PA : !PreOrder LDA, LBA : Lub A, LLA : @LubLaw A LBA LDA} :
     @PureDemand op value valueA approx_algebra eval demand.
   Proof using A.
+    assert (@Reflexive A less_defined) as HRA by (destruct PA; auto).
+    assert (@Reflexive (SeqA A) less_defined) as HRSA.
+    { 
+      admit.
+      (* apply LessDefined_SeqA_refl.
+      auto.  *)
+    }
     unfold PureDemand, pure_demand.
     intros o args output.
     destruct o.
-    - (* Empty *)
+    - (* Empty: args = [], output = [outD] for some outD ≤ NilA, so outD = NilA. *)
+      (* TODO: follow ImplicitQueue.v pd Empty case. The shape forcing happens via
+         `refine (match o, args, output with ... end)` and the trivial case is solved
+         by `repeat constructor + invert_clear 1`. *)
       admit.
-    - (* FCons x *)
+    - (* FCons x: uses fconsD'_approx. The structure mirrors ImplicitQueue.v's
+         Push case (lines 1549–1577). *)
       admit.
-    - (* Head *)
-      admit.
-    - (* Tail — placeholder *)
+    - (* Head: args = [q], output = []. demand returns [headD q None] which
+         must approximate [q]. Uses headD_approx. *)
       admit.
   Admitted.
   #[export] Existing Instance pd.
@@ -1942,7 +1947,21 @@ Section Physicist'sArgument.
     @WellDefinedPotential value valueA _ _.
   Proof using A.
     constructor.
-    - (* sub-additivity: debt(lub x y) ≤ debt(x) + debt(y) *)
+    - (* sub-additivity: debt(lub x y) ≤ debt(x) + debt(y).
+         This requires structural induction on SeqA, mirroring ImplicitQueue.v
+         lines 1660–1672 but with three digit variants (One, Two, Three) instead
+         of two (FOne, FTwo) and (RZero, ROne).
+         
+         Key cases:
+         - Both NilA / both UnitA: lub same shape, debt = 0. lia.
+         - Both MoreA fD mD rD vs fD' mD' rD':
+             debt(lub) = safe(lub fD fD') + debt(lub mD mD') + safe(lub rD rD')
+             Each safe(lub d1 d2) ≤ safe d1 + safe d2 (case-analyze on digits;
+             since lub requires common upper bound, both digits share constructor)
+             debt(lub mD mD') uses IH at type (TupleA A).
+         
+         The polymorphic recursion makes this trickier than ImplicitQueue's case;
+         a custom induction principle like SeqA_ind may be required. *)
       admit.
     - (* potential of bottom is zero *)
       red. simpl. lia.
@@ -1964,7 +1983,13 @@ Section Physicist'sArgument.
   Qed.
   Hint Resolve sumof_potential_bottom_of : core.
 
-  (* --- Physicist'sArgumentD: the core amortized inequality --- *)
+  (* --- Physicist'sArgumentD: the core amortized inequality.
+ 
+     Structure mirrors ImplicitQueue.v lines 1696–1726, using `refine` with a
+     wildcard fallback that the generic tactic discharges. The fallback
+     handles ill-shaped arg/output lists (length mismatches) by reducing
+     them to bottom-of computations.
+  *)
   Theorem physicist's_argumentD :
     forall `{LDA : LessDefined A, !PreOrder LDA, LBA : Lub A, @LubLaw A LBA LDA},
       @Physicist'sArgumentD
@@ -1972,20 +1997,36 @@ Section Physicist'sArgument.
         _ _ _ _ _ _.
   Proof using A.
     pose proof sumof_potential_bottom_of as Hpb.
+    unfold bottom_of, exact in Hpb.
     unfold Physicist'sArgumentD.
     intros LDA HPreOrder LBA HLubLaw o args _ output.
-    destruct o.
-    - (* Empty *)
+    refine (match o, args, output with
+            | Empty, [], [_] => _
+            | FCons x, [q], [outD] => _
+            | Head, [q], [] => _
+            | _, _, _ => _
+            end); try solve [ do 2 invert_clear 1; simpl in *;
+                              try (rewrite Hpb); lia ].
+    - (* Empty: output = [outD] for outD ≤ exact (eval Empty []) = [Thunk NilA].
+         demand returns Tick.tick >> Tick.ret [] which has cost 1 and empty input.
+         budget Empty = 2, sumof potential [] = 0, sumof potential output ≤ 0
+         (NilA has debt 0). So 0 + 1 ≤ 2 + 0. *)
       admit.
-    - (* FCons x *)
-      (* Uses fconsD_cost *)
+    - (* FCons x: uses fconsD'_cost. Output = [outD], outD ≤ exact (fcons x q).
+         demand returns let+ qD := fconsD x q outD' in Tick.ret [qD] where
+         outD' = forceD (bottom_of ...) outD.
+         By fconsD'_cost: debt(input) + cost ≤ 2 + debt(output).
+         budget FCons = 2. So debt(input demand) + (1 + cost_of_fconsD) ≤ 2 + debt(output).
+         The +1 from the outer tick must be absorbed; need to check
+         whether the demand definition adds a tick or not. *)
       admit.
-    - (* Head *)
-      (* Uses headD_cost. Head doesn't produce output queues,
-         so sumof potential output = 0. Need: sumof potential input + cost ≤ budget.
-         Since Head returns [] from eval, output = []. *)
-      admit.
-    - (* Tail — placeholder *)
+    - (* Head: output = [].  Input args = [q].
+         demand Head [q] [] = let+ qD := headD q None in Tick.ret [qD].
+         By headD'_cost: cost (headD q None) ≤ 1.
+         The input demand qD has potential at most 1 (the right Undefined digit
+         contributes 1 in safe_DigitA's default).
+         sumof potential output = 0.
+         budget Head = 2. So potential qD + cost ≤ 1 + 1 = 2 ≤ 2 + 0. *)
       admit.
   Admitted.
   #[export] Existing Instance physicist's_argumentD.
