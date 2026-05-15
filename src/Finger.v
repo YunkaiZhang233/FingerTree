@@ -1671,6 +1671,20 @@ Proof.
   intros. apply fconsD'_cost. auto.
 Qed.
 
+Lemma fconsD'_cost_bottom (A B : Type) `{LDB : LessDefined B, !Reflexive LDB, Exact A B}
+    (x : A) (s : Seq A) :
+  let inM := fconsD' x s (bottom_of (exact (fcons x s))) in
+  debt (Tick.val inM) + Tick.cost inM <= 3.
+Proof.
+  destruct s as [ | y | d m r ].
+  - (* s = Nil *)
+    simpl. lia.
+  - (* s = Unit y *)
+    simpl. lia.
+  - (* s = More d m r *)
+    destruct d as [ a | a b | a b c ]; simpl; lia.
+Qed.
+
 (**
 ==============
 Head Operations
@@ -1923,11 +1937,7 @@ Section Physicist'sArgument.
 
   (* --- budget: amortized cost per operation --- *)
   #[export] Instance budget : Budget op value :=
-    fun o _ => match o with
-               | Empty => 2
-               | FCons _ => 2
-               | Head => 2
-               end.
+    fun o _ => 3.
 
   (* --- exec: clairvoyant semantics --- *)
   #[export] Instance exec : Exec op valueA :=
@@ -2194,28 +2204,55 @@ Qed.
             | _, _, _ => _
             end); try solve [ do 2 invert_clear 1; simpl in *;
                               try (rewrite Hpb); lia ].
-    - (* Empty: output = [outD] for outD ≤ exact (eval Empty []) = [Thunk NilA].
-         demand returns Tick.tick >> Tick.ret [] which has cost 1 and empty input.
-         budget Empty = 2, sumof potential [] = 0, sumof potential output ≤ 0
-         (NilA has debt 0). So 0 + 1 ≤ 2 + 0. *)
-      admit.
-    - (* FCons x: uses fconsD'_cost. Output = [outD], outD ≤ exact (fcons x q).
-         demand returns let+ qD := fconsD x q outD' in Tick.ret [qD] where
-         outD' = forceD (bottom_of ...) outD.
-         By fconsD'_cost: debt(input) + cost ≤ 2 + debt(output).
-         budget FCons = 2. So debt(input demand) + (1 + cost_of_fconsD) ≤ 2 + debt(output).
-         The +1 from the outer tick must be absorbed; need to check
-         whether the demand definition adds a tick or not. *)
-      admit.
-    - (* Head: output = [].  Input args = [q].
-         demand Head [q] [] = let+ qD := headD q None in Tick.ret [qD].
-         By headD'_cost: cost (headD q None) ≤ 1.
-         The input demand qD has potential at most 1 (the right Undefined digit
-         contributes 1 in safe_DigitA's default).
-         sumof potential output = 0.
-         budget Head = 2. So potential qD + cost ≤ 1 + 1 = 2 ≤ 2 + 0. *)
-      admit.
-  Admitted.
+    - (* Empty *)
+      invert_clear 1 as [ | ? ? ? ? HoutD _ ].
+      intros input cost HxD. unfold demand in HxD. simpl in HxD.
+      invert_clear HxD.
+      invert_clear HoutD; [ | invert_clear H ]; simpl; lia.
+    - (* FCons x. *)
+      invert_clear 1 as [ | ? ? ? ? HoutD _ ].
+      intros input cost HxD. unfold demand in HxD. simpl in HxD.
+      destruct (fconsD x q (forceD (bottom_of (exact (fcons x q))) outD))
+        as [cost' qD'] eqn:EfconsD.
+      simpl in HxD. invert_clear HxD.
+      (* Goal: sumof potential [qD'] + cost' ≤ 3 + sumof potential [outD] *)
+      destruct outD as [ outA | ]; simpl in *.
+      + (* outD = Thunk outA: use fconsD'_cost *)
+        invert_clear HoutD.
+        rename H into HleA.  (* HleA : Thunk outA ≤ exact (fcons x q) *)
+        eapply (fconsD'_cost x q) in HleA.   (* HleA is the inverted ≤ hypothesis *)
+        unfold fconsD in EfconsD.
+        rewrite EfconsD in HleA. simpl in HleA.
+        unfold potential.
+        change (match qD' with Thunk qA => debt qA | Undefined => 0 end) with (debt qD').
+        lia.
+      + (* outD = Undefined *)
+        destruct q as [ | y | d m r ]; simpl in *.
+        (* q = Nil *)
+        {
+          invert_clear EfconsD. destruct output; cbn in *; lia.
+        }
+        (* q = Unit y *)
+        {
+          invert_clear EfconsD. destruct output; cbn in *; lia.
+        }
+        (* q = More d m r *)
+        {
+          destruct d as [ a | a b | a b c ]; simpl in EfconsD; invert_clear EfconsD; destruct args; cbn in *; lia.
+        }
+    - (* Head *)
+      invert_clear 1.
+      intros input cost HxD. unfold demand in HxD. simpl in HxD.
+      destruct (headD q None) as [cost' qD'] eqn:EheadD.
+      simpl in HxD. invert_clear HxD.
+      (* Goal: sumof potential [qD'] + cost' ≤ 3 + sumof potential [] *)
+      simpl.
+      (* Case-split on q to compute headD q None concretely *)
+      destruct q as [ | y | d m r ];
+        [ | | destruct d as [ a | a b | a b c ] ];
+        simpl in EheadD; invert_clear EheadD;
+        destruct output; cbn in *; lia.
+  Qed.
   #[export] Existing Instance physicist's_argumentD.
 
   (* --- Final theorem: amortized cost of any trace --- *)
