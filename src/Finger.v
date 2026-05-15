@@ -1909,27 +1909,57 @@ Qed.
     @PureDemand op value valueA approx_algebra eval demand.
   Proof using A.
     assert (@Reflexive A less_defined) as HRA by (destruct PA; auto).
-    assert (@Reflexive (SeqA A) less_defined) as HRSA.
-    { 
-      admit.
-      (* apply LessDefined_SeqA_refl.
-      auto.  *)
-    }
+    assert (@Reflexive (SeqA A) less_defined) as HRSA
+      by apply (@Reflexive_LessDefined_SeqA A LDA HRA).
     unfold PureDemand, pure_demand.
     intros o args output.
     destruct o.
-    - (* Empty: args = [], output = [outD] for some outD ≤ NilA, so outD = NilA. *)
-      (* TODO: follow ImplicitQueue.v pd Empty case. The shape forcing happens via
-         `refine (match o, args, output with ... end)` and the trivial case is solved
-         by `repeat constructor + invert_clear 1`. *)
-      admit.
-    - (* FCons x: uses fconsD'_approx. The structure mirrors ImplicitQueue.v's
-         Push case (lines 1549–1577). *)
-      admit.
-    - (* Head: args = [q], output = []. demand returns [headD q None] which
-         must approximate [q]. Uses headD_approx. *)
-      admit.
-  Admitted.
+    (* Empty *)
+    {
+        destruct args as [ | a args' ]; [ | intro Happrox; simpl; apply bottom_is_least; reflexivity ].
+        destruct output as [ | outD output' ]; [ intro Happrox; simpl; apply bottom_is_least; reflexivity | ].
+        destruct output' as [ | ? ? ]; [ | intro Happrox; simpl; apply bottom_is_least; reflexivity ].
+        (* Now: args = [], output = [outD] *)
+        intro Happrox. simpl. 
+        repeat constructor.      
+    }
+    (* FCons x: uses fconsD'_approx. *)
+    {
+      destruct args as [ | q args' ]; [ intro; simpl; apply bottom_is_least; reflexivity | ].
+      destruct args' as [ | ? ? ]; [ | intro; simpl; apply bottom_is_least; reflexivity ].
+      destruct output as [ | outD output' ];
+      [ intro; simpl; apply bottom_is_least; reflexivity | ].
+      destruct output' as [ | ? ? ];
+      [ | intro; simpl; apply bottom_is_least; reflexivity ].
+      (* args = [q], output = [outD] *)
+      intro Happrox.
+      invert_clear Happrox as [ | ? ? ? ? HoutD _ ].
+      simpl.
+      assert (Hin : forceD (bottom_of (exact (fcons x q))) outD `less_defined` exact (fcons x q)).
+      {
+        destruct outD as [ outA | ]; simpl.
+        - invert_clear HoutD. assumption.
+        - apply bottom_is_least. reflexivity.
+      }
+      eapply fconsD'_approx in Hin.
+      simpl. repeat constructor. exact Hin.
+    }
+    (* Head: args = [q], output = []. demand returns [headD q None] which must approximate [q]. Uses headD_approx. *)
+    {
+      destruct args as [ | q args' ]; [ intro; simpl; apply bottom_is_least; reflexivity | ].
+      destruct args' as [ | ? ? ]; [ | intro; simpl; apply bottom_is_least; reflexivity ].
+      destruct output as [ | outD output' ];
+        [ | intro; simpl; apply bottom_is_least; reflexivity ].
+      intros _. simpl.
+      destruct q as [ | a | d s' d0 ]; simpl.
+      + (* q = Nil: headD Nil None = Tick.ret (Thunk NilA), exact Nil = Thunk NilA *)
+        repeat constructor.
+      + (* q = Unit a: headD (Unit a) None = bottom, Tick.val = Undefined *)
+        repeat constructor.
+      + (* q = More d s' d0: headD (More _ _ _) None = bottom, Tick.val = Undefined *)
+        destruct d; simpl; repeat constructor.
+    }
+  Qed.
   #[export] Existing Instance pd.
 
   (* --- CvDemand: demand functions agree with clairvoyant semantics --- *)
