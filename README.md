@@ -93,8 +93,7 @@ represents the statements of Lemmas 3.4, 3.5, and 3.6; the proof is provided by
 
 Monadic clairvoyance semantics are formalized in `Core.v`. The clairvoyance
 monad itself is called `M`. Pessimistic specifications are given by
-`pessimistic` (also notated `u {{ r }}`, and optimistic specifications are given
-by `optimistic` (also notated `u [[ r ]]`).
+`pessimistic` (also notated `u {{ r }}`), and optimistic specifications are given by `optimistic` (also notated `u [[ r ]]`).
 
 In `DemandSemantics.v`:
 - the syntax is given by the inductive types `ty` and `tm`.

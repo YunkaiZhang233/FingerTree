@@ -2,211 +2,126 @@
 
 ## Project Overview
 
-This is a **MEng thesis project** formally verifying the amortised time complexity of **Claessen's 2020 simplified finger tree** (a persistent deque) using the **bidirectional demand semantics** framework from Xia et al. (ICFP 2024).
+MEng thesis project formally verifying the amortised time complexity of **Claessen's 2020 simplified finger tree** (a persistent deque) using the **bidirectional demand semantics** framework from Xia et al. (ICFP 2024).
 
-The goal: prove that `cons`, `snoc`, `uncons` (head+tail), and `unsnoc` (last+init) all run in **O(1) amortised time**, even under persistent use, using the Rocq Prover (Coq).
+**Goal**: prove that `cons`, `head`, and `tail` (with the symmetric `snoc`, `last`, `init` left as an explicit thesis note) run in **O(1) amortised time**, even under persistent use, using the Rocq Prover (Coq).
+
+**Current status (close to thesis deadline):**
+
+- ✅ Pure data structure and operations (Section 1)
+- ✅ Approximation types & full lattice infrastructure (Section 2)
+- ✅ Demand semantics for `cons` (`fconsD'`) with full proofs (`_approx`, `_spec`, `_cost`)
+- ✅ Demand semantics for `head` (`headD'`) with full proofs
+- ✅ Sub-additivity of `debt` for `SeqA` (`debt_SeqA_lub_subadditive`)
+- ✅ Physicist's argument framework over `op = Empty | FCons A | Head`: all instances (`eval`, `exec`, `demand`, `potential`, `budget`, `pd`, `cd`, `well_defined_potential`, `physicist's_argumentD`, `amortized_cost`) closed
+- ⏳ **NEXT**: `tail` (full scope, including the One-front cascade through Pair/Triple)
+- ❌ **Out of thesis scope**: `snoc`/`unsnoc`/`last`/`init` — symmetric arguments described in thesis only
 
 ## Key References
 
-- **Data structure**: Koen Claessen, "Finger trees explained anew, and slightly simplified" (Haskell Symposium 2020)
-- **Verification framework**: Li-yao Xia et al., "Story of Your Lazy Function's Life: A Bidirectional Demand Semantics for Mechanized Cost Analysis of Lazy Programs" (ICFP 2024)
-- **Template file**: `ImplicitQueue.v` from the ICFP 2024 artifact (branch `icfp24-artifact` of `github.com/lastland/ClairvoyanceMonad`)
-- **Library**: The `Clairvoyance` Rocq library (installed via opam as part of the artifact)
+- **Data structure**: Koen Claessen, "Finger trees explained anew, and slightly simplified" (Haskell Symposium 2020).
+- **Verification framework**: Li-yao Xia et al., "Story of Your Lazy Function's Life: A Bidirectional Demand Semantics for Mechanized Cost Analysis of Lazy Programs" (ICFP 2024).
+- **Persistent analysis confirmation**: Anton Lorenzen, "Lightweight Testing of Persistent Amortized Time Complexity in the Credit Monad" (2025) — verifies via QuickCheck that Claessen's `tail` has O(1) amortised cost in the persistent setting, using credit passing. Confirms our pen-and-paper analysis is correct.
+- **Template file**: `ImplicitQueue.v` from the ICFP 2024 artifact. This project mirrors its structure closely.
+- **Library**: The `Clairvoyance` Rocq library (the artifact's library).
 
-## The Data Structure (Claessen 2020, Try 5)
+## The Data Structure
 
-```haskell
--- Haskell reference (paper's final version, Section 8)
-data Seq a   = Nil | Unit a | More (Some a) (Seq (Tuple a)) (Some a)
-data Some a  = One a | Two a a | Three a a a
-data Tuple a = Pair a a | Triple a a a
+```
+Seq A   = Nil | Unit A | More (Digit A) (Seq (Tuple A)) (Digit A)
+Digit A = One A | Two A A | Three A A A
+Tuple A = Pair A A | Triple A A A
 ```
 
-We rename `Some` to `Digit` in Coq to avoid clashing with `option`'s `Some`.
+`Some` renamed to `Digit` in Coq (to avoid colliding with `option`'s `Some`).
 
-Key properties:
-- `Digit` (paper's `Some`) holds 1–3 elements at the fingers. `Two` is "safe", `One` and `Three` are "dangerous"
-- `Tuple` holds 2–3 elements in the recursive spine. `Pair` and `Triple` play different roles in `tail`
-- The middle field `Seq (Tuple a)` is **polymorphic recursion** — each level stores tuples of the level below
-- In the lazy version, the middle field is wrapped in a **thunk** (suspension)
-- This is a **deque**: both ends support insertion and deletion
-- `tail` has a three-way branch when pulling from the middle: empty / Pair (recurse) / Triple (chop, no recursion)
-- The `chop`/`map1` pattern for Triples is Claessen's key insight — it avoids recursion when possible
+Key invariants:
+- `Digit` holds 1–3 elements at the fingers. `Two` is **safe**; `One` and `Three` are **dangerous**.
+- `Tuple` holds 2–3 elements in the spine.
+- The middle field is **polymorphic recursion** (each level stores tuples of the level below) and **lazy** (wrapped in `T`).
+- `tail`'s cascading case (front digit `One`) has a three-way branch: empty spine / spine head `Pair x y` (recurse) / spine head `Triple x _ _` (chop via `map1`, **no recursion**). The chop/`map1` shortcut for `Triple` is Claessen's key insight.
 
-See `CLAESSEN_REFERENCE.md` for the complete function-by-function specification.
+## Verification Patterns Learned (these all work; consult before re-deriving)
 
-## Relationship to ImplicitQueue.v
+### Polymorphic-recursion induction
+- Single-argument lemmas use the custom `SeqA_ind` (line ~587). Its `MoreA` case provides a `TR1`-wrapped IH at `TupleA A`.
+- Two-argument lemmas (antisymmetry, sub-additivity) require `fix SELF n` with `A` universally quantified **inside** the statement, with explicit `@` when composing through smaller types.
 
-The finger tree is a generalisation of Okasaki's implicit queue:
+### Mixed-monad bind notation footgun
+The `>>` notation is overloaded for the `M` monad (`Core.v`) and the `Tick` monad (`Tick.Notations`). **Always use `let+` for `Tick`** explicitly to avoid ambiguity.
 
-| Aspect | ImplicitQueue | FingerTree (this project) |
-|--------|--------------|--------------------------|
-| Front digit | `One \| Two` (1–2) | `One \| Two \| Three` (1–3) |
-| Rear digit | `Zero \| One_r` (0–1) | `One \| Two \| Three` (1–3) |
-| Spine element | `A * A` (pairs) | `Tuple A` (Pair/Triple) |
-| Safe digits | — | `Two` |
-| Dangerous | all | `One`, `Three` |
-| Operations | push (snoc), pop (uncons) | cons, snoc, uncons, unsnoc |
-| Base cases | `Shallow (option A)` | `Nil \| Unit A` |
-| tail cascade | always recurses | Pair → recurse, Triple → chop (no recursion) |
-| Extra helpers | — | `map1`, `chop`, `mapLast`, `chopLast` |
+### Forcing the outer thunk for monotonicity
+If a clairvoyant function `fA : T (SeqA A) → M ...` deterministically returns a non-bottom value for `q = Undefined`, monotonicity fails. **Always use the `forcing q (...)` pattern** (which gives `bottom` on `Undefined`) for the outer wrapper:
+- `fA' : SeqA A → M ...` (the body operating on unwrapped `SeqA A`)
+- `fA  : T (SeqA A) → M ... := forcing q fA'`
 
-The proof structure is **identical** — follow ImplicitQueue.v section by section, adapting for wider digits, the Tuple type, and symmetric operations.
+This makes `fA_mon`'s `Undefined` case trivial via `solve_mon`.
 
-## File Structure
+### Demand for queries with `outD = None`
+For `head s` / `tail s` on non-`Nil` `s`, even when the user demands nothing of the output (`outD = None` or `outD ≤ NilA`), the demand on `s` is NOT `bottom` — it must be a **structured shape** showing that the operation forced the spine top and the digit constructor. Returning `bottom` breaks `CvDemand` (because `headA Undefined = forcing Undefined _ = bottom`, which has no optimistic witness). See `headD'`'s revised design at lines ~1708–1730 of `Finger.v`.
 
-The main file is `theories/FingerTree.v` (or just `FingerTree.v` depending on project layout). It follows ImplicitQueue.v's structure:
+### Budget tightness under safe-convention
+Convention: `safe_DigitA` = 0 for One/Three, 1 for Two; undefined-default = 1. Worst-case input demand has potential `1 (TwoA) + 1 (Undefined rear) = 2`. Plus 1 cost = 3. So `budget = 3` is tight for operations that touch this case. Current budgets: Empty/FCons/Head all = 3. **Tail will need budget 3 too** by the analysis in `TAIL_ANALYSIS.md`.
 
-### Section 1: Pure Definitions (~done)
-- `Digit`, `Tuple`, `Seq` inductive types
-- Helper functions: `map1`, `mapLast`, `chop`, `chopLast`
-- Pure operations: `cons`, `snoc`, `uncons`, `unsnoc`, `head`, `last`, `tail`, `init`
-- `toList` / `toListWith` for functional correctness specification
+### `pose proof` stalls on let-laden lemma types
+We observed `pose proof (fconsD'_cost_bottom x q)` stalling due to elaboration of `let inM := ... in let cost := ... in ...`-style lemma types. Workarounds:
+- `eapply lemma in H` to instantiate against a known premise.
+- Pass typeclass args explicitly with `@`.
+- Inline the case analysis if the lemma is only used once (we did this for `fconsD'_cost_bottom` in the `physicist's_argumentD` FCons-Undefined branch).
 
-### Section 2: Approximation Types & Lattice Boilerplate (~600+ lines)
-- `DigitA` — approximated digit with a `DigitBot` constructor
-- `TupleA` — approximated tuple with a `TupleBot` constructor
-- `SeqA` — approximated sequence with `SeqBot` constructor, middle wrapped in `T` (thunk)
-- For each of `DigitA`, `SeqA`: instances for `LessDefined`, `Reflexive`, `Transitive`, `PreOrder`, `PartialOrder`, `Exact`, `BottomOf`, `Lub`, `LubLaw`
-- **Critical**: `SeqA` requires a hand-written custom induction principle (`SeqA_ind`) because Rocq's auto-generated one doesn't handle `SeqA (prodA A A)` nesting
+### Sub-additivity of `debt`
+`debt_SeqA_lub_subadditive` (line ~1480) decomposes:
+- `safe_DigitA_lub_subadditive` (digit level).
+- `safe_T_lub_subadditive` (T-lifted digit).
+- Main lemma via `SeqA_ind`, with the `MoreA` case combining all three plus the spine IH.
 
-### Section 3: Demand Functions (~200 lines)
-- `consD'`, `snocD'` — demand functions for insertion
-- `unconsD'`, `unsnocD'` — demand functions for removal
-- These mirror the pure operations but track cost via `Tick` and compute input demands from output demands
+Reusable for any future operation's `well_defined_potential` — `tail` will not need to re-prove this.
 
-### Section 4: Approximation Proofs (~300 lines)
-- `consD'_approx`, `unconsD'_approx`, etc.
-- Prove that demand functions compute valid approximations
+## File Structure (Finger.v)
 
-### Section 5: Cost Proofs / Physicist's Argument (~300 lines)
-- Potential function on `SeqA`
-- Amortised cost theorems: `cost + Φ_new ≤ Φ_old + O(1)`
-
-### Section 6: Persistence (stretch goal)
-- Extends to persistent use via `LubLaw` and monotonicity
-
-## Key Patterns from ImplicitQueue.v to Follow
-
-### Approximation types
-For every pure constructor, add a `Bot` constructor:
-```coq
-(* Pure *)
-Inductive Digit (A : Type) := One | Two | Three.
-
-(* Approximated *)
-Inductive DigitA (A : Type) :=
-  | OneA : A -> DigitA A
-  | TwoA : A -> A -> DigitA A
-  | ThreeA : A -> A -> A -> DigitA A
-  | DigitBot : DigitA A.
-
-(* Pure *)
-Inductive Tuple (A : Type) := Pair | Triple.
-
-(* Approximated *)
-Inductive TupleA (A : Type) :=
-  | PairA : A -> A -> TupleA A
-  | TripleA : A -> A -> A -> TupleA A
-  | TupleBot : TupleA A.
+```
+Lines    Content
+~30      Imports
+~130–230 Section 1: Pure data structure & operations
+~240–815 Section 2: Approximation types & lattice
+~820–1090 Section 3: fcons / fconsA / fconsD' (definition)
+~1090–1670 Section 4: fcons proofs (approx, spec, cost) + sub-additivity (1445–1535)
+~1697–1840 Section 5: head / headA / headD'
+~1845–1895 Section 6: empty / forceD
+~1917–2266 Section 7: Physicist's Argument
 ```
 
-### The thunk wrapper
-The middle field in `SeqA` uses `T` (the thunk type from the library):
-```coq
-Inductive SeqA (A : Type) :=
-  | NilA  : SeqA A
-  | UnitA : A -> SeqA A
-  | MoreA : DigitA A -> T (SeqA (TupleA A)) -> DigitA A -> SeqA A
-  | SeqBot : SeqA A.
-```
+Next addition: **Section 5.5** between Head and Empty/Physicist's, covering `tail` / `tailA` / `tailD'` and its proofs. Then extend the operation algebra `op` to include `Tail` and update the Physicist's Argument section.
 
-### LessDefined instances
-Pattern: `Bot ⊑ anything`, then pointwise on matching constructors:
-```coq
-Inductive LessDefinedDigitA {A} `{LessDefined A} : DigitA A -> DigitA A -> Prop :=
-  | LD_DigitBot : forall d, LessDefinedDigitA DigitBot d
-  | LD_OneA : forall x y, x ⊑ y -> LessDefinedDigitA (OneA x) (OneA y)
-  | LD_TwoA : forall x1 x2 y1 y2, x1 ⊑ y1 -> x2 ⊑ y2 ->
-      LessDefinedDigitA (TwoA x1 x2) (TwoA y1 y2)
-  | LD_ThreeA : forall x1 x2 x3 y1 y2 y3, x1 ⊑ y1 -> x2 ⊑ y2 -> x3 ⊑ y3 ->
-      LessDefinedDigitA (ThreeA x1 x2 x3) (ThreeA y1 y2 y3).
-```
+## Operation Algebra in Physicist's Argument
 
-### Custom induction principle for SeqA
-Rocq's auto-generated induction principle for `SeqA` won't handle the nested `SeqA (prodA A A)`. You must write `SeqA_ind` by hand, following the pattern of `QueueA_ind` in ImplicitQueue.v. The key is to universally quantify over the type parameter and thread the inductive hypothesis through the `T` wrapper and `prodA` nesting.
+Currently: `op = Empty | FCons A | Head`. Budgets all = 3.
 
-### Demand functions
-Use `Tick` monad for cost, `optimistic_thunk` for thunks that might not be forced:
-```coq
-(* Skeleton for consD' *)
-Fixpoint consD' {A} `{Exact A (EA A)}
-  (x : A) (s : SeqA (EA A)) (outD : SeqA (EA A))
-  : Tick (SeqA (EA A)) := ...
-```
+After `tail` is added: `op = Empty | FCons A | Head | Tail`. `Tail` budget: 3 (per analysis in `TAIL_ANALYSIS.md`).
 
-### Potential function
-For the deque, potential should measure digit "buffer" at each level:
-```coq
-(* digit_potential (OneA _) = 0 *)
-(* digit_potential (TwoA _ _) = 1 *)
-(* digit_potential (ThreeA _ _ _) = 2 *)
-(* digit_potential DigitBot = 0 *)
-```
-Total node potential = `digit_potential f + digit_potential r`, summed recursively over materialised spine nodes.
+## Next Step: implementing `tail` (full scope)
+
+Detailed feasibility analysis and design blueprint: see `TAIL_ANALYSIS.md`.
+
+**Phased plan** (~7–8 working days estimated):
+1. **Phase A**: Pure `tail` + `chop_triple` + reuse of existing `map1`. `Compute` tests.
+2. **Phase B**: `tail_ind` custom induction principle (9 cases).
+3. **Phase C**: `tailA' / tailA` (clairvoyant via `forcing`) + `tailA_mon`.
+4. **Phase D**: `tailD'` with two helpers — `add_pair_to_head_demand`, `inverse_chop_demand` — plus their debt-preservation lemmas.
+5. **Phase E**: Big lemmas `tailD'_approx`, `tailD'_spec`, `tailD'_cost`.
+6. **Phase F**: Extend `op`, `eval`, `exec`, `demand`, `wf_eval`, `monotonic_exec`, `pd`, `cd`, `physicist's_argumentD`.
+
+**Design decision**: NOT factoring through a separate `deep0` (à la Lorenzen). Inline the structure into `tail` directly, matching Claessen's presentation. This avoids mutual recursion at the pure level and keeps proofs flatter.
 
 ## Coding Conventions
 
-- Follow ImplicitQueue.v's style exactly (naming, tactic usage, proof structure)
-- Use `teardown` for repetitive case analysis
-- Use `mgo_` and `keep_mgo_` for optimistic specification proofs
-- Use `invert_clear` for inversions that clean up hypotheses
-- All proofs should be `Defined` (not `Qed`) if they compute, `Qed` for Props
-- Use `Arguments` to set implicit arguments after each inductive definition
-- Comment sections with `(* ================================================================= *)` banners
+- Follow `ImplicitQueue.v` style (naming, tactics, structure).
+- `mgo_` / `keep_mgo_` / `mgo_brute_force` for optimistic specs.
+- `invert_clear` for clean inversions.
+- `Qed` for Props (default); `Defined` only for terms that need to compute.
+- Section banner: `(** ===== Section name ===== *)`.
+- `Tick`-monad bind: always `let+`, never `>>` (collision risk with `M`'s `>>`).
 
-## Build
+## Build / Dependencies
 
-The project depends on the Clairvoyance library. Typical setup:
-```bash
-opam install coq-clairvoyance  # or build from source
-```
-
-The `_CoqProject` should include:
-```
--R theories Clairvoyance
-```
-or whatever the local logical path is. Match the existing artifact's project configuration.
-
-Compile with:
-```bash
-coq_makefile -f _CoqProject -o Makefile
-make
-```
-
-## Current Status
-
-- Section 1 (pure definitions) is drafted in `FingerTree.v`
-- Sections 2–6 are TODO
-- Priority: get Section 2 (lattice boilerplate) compiling, then Section 3 (demand functions)
-- Symmetry exploitation: `snoc`/`unsnoc` are symmetric to `cons`/`uncons`, so proving one side first and then mirroring is efficient
-
-## Amortised Analysis Summary
-
-The debit invariant for the finger tree:
-```
-debits(m) ≤ min(|f| - 1, |r| - 1)
-```
-
-| (f, r) | Max debits |
-|---------|-----------|
-| (One, One) | 0 |
-| (One, Two) or (Two, One) | 0 |
-| (One, Three) or (Three, One) | 0 |
-| (Two, Two) | 1 |
-| (Two, Three) or (Three, Two) | 1 |
-| (Three, Three) | 2 |
-
-The `min` (rather than sum) is because **both** ends of the deque can trigger a force on the same middle suspension, so the suspension must be payable from the least-buffered side.
-
-Key insight: after any cascade, the triggering digit resets to `Two` (safe), guaranteeing at least one non-cascading operation before the next cascade at that digit.
+The project depends on the Clairvoyance library (installed alongside the ICFP 2024 artifact). Confirm `_CoqProject` is set up accordingly. CoqHammer was originally imported but is not used in current proofs — consider dropping the import to speed up compilation.
