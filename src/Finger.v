@@ -1660,14 +1660,36 @@ Proof.
   eapply headD'_cost.
 Qed.
 
+Definition headA' (A : Type) (q : SeqA A) : M (option (T A)) :=
+  tick >>
+    match q with
+    | NilA => ret None
+    | UnitA x => ret (Some x)
+    | MoreA fD _ _ =>
+        forcing fD (fun f =>
+          match f with
+          | OneA x => ret (Some x)
+          | TwoA x _ => ret (Some x)
+          | ThreeA x _ _ => ret (Some x)
+          end)
+    end.
+ 
 Definition headA (A : Type) (q : T (SeqA A)) : M (option (T A)) :=
-  tick >> match q with
-         | Thunk (UnitA x) => ret (Some x)
-         | Thunk (MoreA (Thunk (OneA x)) _ _) => ret (Some x)
-         | Thunk (MoreA (Thunk (TwoA x _)) _ _) => ret (Some x)
-         | Thunk (MoreA (Thunk (ThreeA x _ _)) _ _) => ret (Some x)
-         | _ => ret None
-         end.
+  forcing q headA'.
+
+Lemma headA_mon (A : Type) `{LDA : LessDefined A, PreOrder A LDA}
+    (q1 q2 : T (SeqA A)) :
+    q1 `less_defined` q2 ->
+    headA q1 `less_defined` headA q2.
+Proof.
+  invert_clear 1; try solve [ solve_mon ].
+  (* Both Thunk: q1 = Thunk x1, q2 = Thunk y1, x1 ≤ y1 *)
+  rename x into x1. rename y into y1. rename H0 into Hxy.
+  simpl. unfold headA'. apply bind_mon; [ reflexivity | ].
+  intros x x' Hxx'.
+  (* match x1 ≤ match y1, given Hxy : x1 ≤ y1 *)
+  invert_clear Hxy; try solve [ solve_mon ].
+Qed.
 
 Lemma headD'_spec : forall (A B : Type)
     `{LDB : LessDefined B, !Reflexive LDB, Exact A B}
@@ -1679,15 +1701,16 @@ Lemma headD'_spec : forall (A B : Type)
                      outD `less_defined` out /\ cost <= dcost ]].
 Proof.
   intros A B LDB RLDB EAB s outD Happrox sD HsD dcost.
-  destruct s; destruct outD; simpl in *;
-    try (invert_clear Happrox; fail).
-  - (* Nil, None *)
-    subst. unfold headA. mgo_.
-  - (* Unit a, Some t *)
-    subst. unfold headA. mgo_.
-  - (* More d s d0, Some t *)
-    destruct d; subst; unfold headA; simpl; mgo_.
-  - destruct d; subst; simpl; unfold headA; mgo_. 
+  destruct s as [ | a | d s' d0 ].
+  3: destruct d.
+  all: destruct outD;
+       simpl in *;
+       try (invert_clear Happrox; fail).
+  - (* Nil, None *)              subst. unfold headA, headA'. mgo_.
+  - (* Unit a, Some t *)         subst. unfold headA, headA'. mgo_.
+  - (* More (One _), Some t *)   subst. unfold headA, headA'. simpl. mgo_.
+  - (* More (Two _ _), Some t *) subst. unfold headA, headA'. simpl. mgo_.
+  - (* More (Three _ _ _), Some t *) subst. unfold headA, headA'. simpl. mgo_.
 Qed.
 
 Corollary headD_spec : forall (A : Type) `{LDA : LessDefined A, !Reflexive LDA}
@@ -1784,36 +1807,195 @@ Section Physicist'sArgument.
 
   Inductive op : Type :=
   | Empty
-  | Cons (x : A)
-  | Uncons.
+  | FCons (x : A)
+  | Head.
 
+  (* --- eval: pure semantics --- *)
   #[export] Instance eval : Eval op value :=
     fun op args => match op, args with
                 | Empty, [] => [empty]
-                | Cons x, [q] => [fcons x q]
-                | Uncons, [q] => [q]  (* placeholder *)
+                | FCons x, [q] => [fcons x q]
+                | Head, [q] => []  (* Head returns an element, not a queue *)
                 | _, _ => []
                 end.
-  
+
+  (* --- budget: amortized cost per operation --- *)
   #[export] Instance budget : Budget op value :=
-    fun _ _ => 2.
-  
-  
+    fun o _ => match o with
+               | Empty => 2
+               | FCons _ => 2
+               | Head => 1
+               end.
+
+  (* --- exec: clairvoyant semantics --- *)
   #[export] Instance exec : Exec op valueA :=
     fun o args => match o, args with
                | Empty, [] => let! q := emptyA in ret [Thunk q]
-               | Cons x, [q] => let! q' := fconsA (exact x) q in ret [Thunk q']
-               | Uncons, [q] => ret [Thunk q]  (* placeholder *)
+               | FCons x, [q] => let! q' := fconsA (exact x) q in ret [Thunk q']
+               | Head, [q] => let! _ := headA q in ret []
                | _, _ => ret []
                end.
-  
+
+  (* --- well-formedness: trivially true --- *)
   #[export] Instance wf : WellFormed value := fun _ => True.
 
   Lemma wf_eval : WfEval.
   Proof using A.
     unfold WfEval. destruct o, vs; repeat constructor.
-    - simpl. destruct vs; repeat constructor.
-    - simpl. repeat constructor. simpl.
-  Qed.
+    all: simpl; destruct vs; repeat constructor.
+  Qed. (* fill in case-by-case *)
   #[export] Existing Instance wf_eval.
+
+  (* --- monotonicity of exec --- *)
+  Lemma monotonic_exec `{LDA : LessDefined A, !PreOrder LDA} (o : op) : Monotonic (exec o).
+  Proof using A.
+    unfold Monotonic. destruct o; invert_clear 1; simpl; try solve [ solve_mon ].
+    - (* FCons *)
+      invert_clear H0; try solve [ solve_mon ].
+      apply bind_mon.
+      + apply fconsA_mon; try solve [ auto ]. reflexivity.
+      + intros. solve_mon.
+    - (* Head *)
+      invert_clear H0; try solve [ solve_mon ].
+      apply bind_mon.
+      + apply headA_mon; try solve [ auto ]. reflexivity.
+    - (* Tail *)
+      invert_clear H1; solve_mon.
+  Admitted.
+
+  (* --- approx algebra --- *)
+  #[export] Instance approx_algebra
+    `{LDA : LessDefined A, PreOrder A LDA, LBA : Lub A, @LubLaw A LBA LDA} :
+    IsApproxAlgebra value valueA.
+  Proof.
+    econstructor; try typeclasses eauto.
+  Defined.
+
+  (* --- well-defined exec --- *)
+  Lemma well_defined_exec
+    `{LDA : LessDefined A, PreOrder A LDA, LBA : Lub A, @LubLaw A LBA LDA} :
+    @WellDefinedExec op value valueA _ _.
+  Proof using A.
+    constructor; exact monotonic_exec.
+  Qed.
+  #[export] Existing Instance well_defined_exec.
+
+  (* --- demand: backward demand propagation --- *)
+  #[export] Instance demand : Demand op value valueA :=
+    fun op args argsA =>
+      match op, args, argsA with
+      | Empty, [], [outD] =>
+          let outD := forceD (bottom_of (exact empty)) outD in
+          emptyD outD >> Tick.ret []
+      | FCons x, [q], [outD] =>
+          let outD := forceD (bottom_of (exact (fcons x q))) outD in
+          let+ qD := fconsD x q outD in
+          Tick.ret [qD]
+      | Head, [q], [] =>
+          let+ qD := headD q None in
+          Tick.ret [qD]
+      | Tail, [q], [] =>
+          Tick.ret [Thunk (exact q)]  (* placeholder *)
+      | Tail, [q], [qD'] =>
+          Tick.ret [Thunk (exact q)]  (* placeholder *)
+      | _, _, _ => Tick.ret (bottom_of (exact args))
+      end.
+
+  (* --- potential function --- *)
+  #[global] Instance potential : Potential valueA :=
+    fun qD => match qD with
+           | Thunk qA => debt qA
+           | Undefined => 0
+           end.
+
+  (* --- PureDemand: demand functions are correct w.r.t. eval --- *)
+  Lemma pd
+    `{LDA : LessDefined A, PA : !PreOrder LDA, LBA : Lub A, LLA : @LubLaw A LBA LDA} :
+    @PureDemand op value valueA approx_algebra eval demand.
+  Proof using A.
+    unfold PureDemand, pure_demand.
+    intros o args output.
+    destruct o.
+    - (* Empty *)
+      admit.
+    - (* FCons x *)
+      admit.
+    - (* Head *)
+      admit.
+    - (* Tail — placeholder *)
+      admit.
+  Admitted.
+  #[export] Existing Instance pd.
+
+  (* --- CvDemand: demand functions agree with clairvoyant semantics --- *)
+  Lemma cd
+    `{LDA : LessDefined A, PreOrder A LDA, LBA : Lub A, @LubLaw A LBA LDA} :
+    @CvDemand op value valueA _ _ _ _.
+  Proof using A.
+    admit.
+  Admitted.
+  #[export] Existing Instance cd.
+
+  (* --- WellDefinedPotential: sub-additivity of lub + potential(bottom) = 0 --- *)
+  Lemma well_defined_potential
+    `{LDA : LessDefined A, PreOrder A LDA, LBA : Lub A, @LubLaw A LBA LDA} :
+    @WellDefinedPotential value valueA _ _.
+  Proof using A.
+    constructor.
+    - (* sub-additivity: debt(lub x y) ≤ debt(x) + debt(y) *)
+      admit.
+    - (* potential of bottom is zero *)
+      red. simpl. lia.
+  Admitted.
+  #[export] Existing Instance well_defined_potential.
+
+  (* --- Helper lemmas for potential --- *)
+  Lemma potential_bottom_of (q : value) :
+    potential (bottom_of (exact q)) = 0.
+  Proof using A.
+    destruct q; reflexivity.
+  Qed.
+  Hint Resolve potential_bottom_of : core.
+
+  Lemma sumof_potential_bottom_of (qs : list value) :
+    sumof potential (bottom_of (exact qs)) = 0.
+  Proof using A.
+    induction qs; auto.
+  Qed.
+  Hint Resolve sumof_potential_bottom_of : core.
+
+  (* --- Physicist'sArgumentD: the core amortized inequality --- *)
+  Theorem physicist's_argumentD :
+    forall `{LDA : LessDefined A, !PreOrder LDA, LBA : Lub A, @LubLaw A LBA LDA},
+      @Physicist'sArgumentD
+        op value valueA
+        _ _ _ _ _ _.
+  Proof using A.
+    pose proof sumof_potential_bottom_of as Hpb.
+    unfold Physicist'sArgumentD.
+    intros LDA HPreOrder LBA HLubLaw o args _ output.
+    destruct o.
+    - (* Empty *)
+      admit.
+    - (* FCons x *)
+      (* Uses fconsD_cost *)
+      admit.
+    - (* Head *)
+      (* Uses headD_cost. Head doesn't produce output queues,
+         so sumof potential output = 0. Need: sumof potential input + cost ≤ budget.
+         Since Head returns [] from eval, output = []. *)
+      admit.
+    - (* Tail — placeholder *)
+      admit.
+  Admitted.
+  #[export] Existing Instance physicist's_argumentD.
+
+  (* --- Final theorem: amortized cost of any trace --- *)
+  Theorem amortized_cost
+    `{LDA : LessDefined A, PreOrder A LDA, LBA : Lub A, @LubLaw A LBA LDA} :
+    @AmortizedCostSpec op value valueA _ _ _.
+  Proof using A.
+    eapply @physicist's_method; typeclasses eauto.
+  Qed.
+
 End Physicist'sArgument.
