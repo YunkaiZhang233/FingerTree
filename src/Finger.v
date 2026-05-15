@@ -1877,8 +1877,6 @@ Qed.
 
 (* Final Verification *)
 
-From Coq Require Import List.
-Import ListNotations.
 From Clairvoyance Require Import Interfaces.
 Open Scope tick_scope.
 
@@ -1895,24 +1893,6 @@ Lemma less_defined_forceD (A : Type) `{LessDefined A} (x : T A) (y : A) (z : A)
 Proof.
   intros Hy Hx; inversion Hx; cbn; auto.
 Qed.
-
-Definition unconsD' (A B : Type) (s : Seq A) (outD : option (T B * T (SeqA B)))
-    : Tick (T (SeqA B)) :=
-  Tick.tick >> Tick.ret (Thunk NilA).  (* placeholder *)
-
-Definition unconsD (A : Type) (s : Seq A) (outD : option (T A * T (SeqA A)))
-    : Tick (T (SeqA A)) :=
-  unconsD' s outD.
-
-From Clairvoyance Require Import Core.
-
-(* Placeholder for clairvoyant uncons *)
-Definition unconsA (A : Type) (q : T (SeqA A)) : M (option (T A * T (SeqA A))) :=
-  tick >> ret (None).  (* placeholder *)
-
-Definition uncons_placeholder {A : Type} (s : Seq A) : option (A * Seq A) :=
-  None.
-
 
 Section Physicist'sArgument.
 
