@@ -1837,9 +1837,326 @@ Corollary headD_spec : forall (A : Type) `{LDA : LessDefined A, !Reflexive LDA}
       headA sD [[ fun out cost =>
                      outD `less_defined` out /\ cost <= dcost ]].
 Proof.
-  intros.  
+  intros.
   apply headD'_spec; auto.
 Qed.
+
+(** ===== ftail (Section 5.5) ===== *)
+
+(* Drop the first element of a [Tuple].  Used in [ftail]'s Triple-head
+   branch to convert [Triple x y z] into [Pair y z] without recursing
+   into the spine.  The [Pair] arm is unreachable in [ftail]'s usage but
+   kept to make the function total. *)
+Definition chop_triple {A : Type} (t : Tuple A) : Tuple A :=
+  match t with
+  | Triple _ y z => Pair y z
+  | Pair x y     => Pair x y
+  end.
+
+(* Apply [f] to the first element of a [Seq], leaving the rest of the
+   structure intact.  Non-recursive — touches only the topmost element.
+   Used in [ftail]'s Triple-head branch via [map1 chop_triple m]. *)
+Definition map1 {A : Type} (f : A -> A) (s : Seq A) : Seq A :=
+  match s with
+  | Nil                    => Nil
+  | Unit x                 => Unit (f x)
+  | More (One x)       m r => More (One (f x))     m r
+  | More (Two x y)     m r => More (Two (f x) y)   m r
+  | More (Three x y z) m r => More (Three (f x) y z) m r
+  end.
+
+(** *** ftail — drop the front element
+
+    Nine effective cases:
+    - [Nil]: total, returns [Nil] (Claessen leaves it undefined; we make
+      it total to simplify Coq).
+    - [Unit _]: drops the singleton.
+    - [More (Three _ x y) m r]: Three → Two, no recursion.
+    - [More (Two _ x) m r]: Two → One, no recursion.
+    - [More (One _) Nil r]: reshape [r] (three sub-cases).
+    - [More (One _) m r] with [m ≠ Nil]:
+      + [head m = Some (Pair x y)]: recurse on [m]; front becomes
+        [Two x y].  The only structurally recursive site.
+      + [head m = Some (Triple x _ _)]: chop via [map1 chop_triple];
+        front becomes [One x].  No recursion — Claessen's key trick. *)
+Fixpoint ftail {A : Type} (s : Seq A) : Seq A :=
+  match s with
+  | Nil                    => Nil
+  | Unit _                 => Nil
+  | More (Three _ x y) m r => More (Two x y) m r
+  | More (Two _ x)     m r => More (One x)   m r
+  | More (One _)       m r =>
+      match m with
+      | Nil =>
+          match r with
+          | One   y     => Unit y
+          | Two   y z   => More (One y) Nil (One z)
+          | Three y z w => More (One y) Nil (Two z w)
+          end
+      | _ =>
+          match head m with
+          | Some (Pair   x y)   => More (Two x y) (ftail m) r
+          | Some (Triple x _ _) => More (One x)   (map1 chop_triple m) r
+          | None                => Nil    (* unreachable: m ≠ Nil *)
+          end
+      end
+  end.
+
+(* Sanity checks against the worked-examples table in
+   CLAESSEN_REFERENCE.md.  Re-enable to confirm.
+
+Compute @ftail nat Nil.
+Compute @ftail nat (Unit 1).
+Compute @ftail nat (More (Three 1 2 3) Nil (One 5)).
+Compute @ftail nat (More (Two 1 2) Nil (One 5)).
+Compute @ftail nat (More (One 1) Nil (One 5)).
+Compute @ftail nat (More (One 1) Nil (Two 5 6)).
+Compute @ftail nat (More (One 1) Nil (Three 5 6 7)).
+Compute @ftail nat (More (One 1) (Unit (Pair 2 3)) (One 5)).
+Compute @ftail nat (More (One 1) (Unit (Triple 2 3 4)) (One 5)).
+*)
+
+(** Helper unfolds for the One-front cascade cases of [ftail_ind].
+    They rewrite [ftail (More (One a) m r)] using a known value of
+    [head m], without requiring the caller to destructure [m] — keeping
+    [m] as a variable so the subsequent [SELF] call passes Coq's
+    structural-recursion check. *)
+Lemma ftail_one_unfold_pair (A : Type) (a x y : A)
+      (m : Seq (Tuple A)) (r : Digit A) :
+  head m = Some (Pair x y) ->
+  ftail (More (One a) m r) = More (Two x y) (ftail m) r.
+Proof.
+  intro Eh.
+  destruct m as [ | tu | [tu | tu tv | tu tv tw] mm rm];
+    simpl in Eh; try discriminate;
+    inversion Eh; subst tu; reflexivity.
+Qed.
+
+Lemma ftail_one_unfold_triple (A : Type) (a x y z : A)
+      (m : Seq (Tuple A)) (r : Digit A) :
+  head m = Some (Triple x y z) ->
+  ftail (More (One a) m r) = More (One x) (map1 chop_triple m) r.
+Proof.
+  intro Eh.
+  destruct m as [ | tu | [tu | tu tv | tu tv tw] mm rm];
+    simpl in Eh; try discriminate;
+    inversion Eh; subst tu; reflexivity.
+Qed.
+
+(** *** ftail_ind — custom induction principle, 9 cases.
+
+    Mirrors the structure of [fcons_ind].  Cases 8 (Pair-head, recursive)
+    and 9 (Triple-head, non-recursive) split by [head m], not by [m]'s
+    constructor — see [ftail_one_unfold_pair] / [ftail_one_unfold_triple]
+    above.  This keeps [m] as a Coq-tracked subterm of [s] so the inner
+    [SELF] call structurally type-checks. *)
+Lemma ftail_ind :
+  forall (P : forall (A : Type), Seq A -> Seq A -> Prop),
+    (forall A, P A Nil Nil) ->
+    (forall A x, P A (Unit x) Nil) ->
+    (forall A a x y m r,
+        P A (More (Three a x y) m r) (More (Two x y) m r)) ->
+    (forall A a x m r,
+        P A (More (Two a x) m r) (More (One x) m r)) ->
+    (forall A a y,
+        P A (More (One a) Nil (One y)) (Unit y)) ->
+    (forall A a y z,
+        P A (More (One a) Nil (Two y z))
+             (More (One y) Nil (One z))) ->
+    (forall A a y z w,
+        P A (More (One a) Nil (Three y z w))
+             (More (One y) Nil (Two z w))) ->
+    (forall A a x y m r,
+        P (Tuple A) m (ftail m) ->
+        head m = Some (Pair x y) ->
+        P A (More (One a) m r) (More (Two x y) (ftail m) r)) ->
+    (forall A a x y z m r,
+        head m = Some (Triple x y z) ->
+        P A (More (One a) m r) (More (One x) (map1 chop_triple m) r)) ->
+    forall A s, P A s (ftail s).
+Proof.
+  intros P H1 H2 H3 H4 H5 H6 H7 H8 H9.
+  fix SELF 2. intros A s.
+  refine (match s with
+          | Nil    => _
+          | Unit x => _
+          | More (One a)       m r => _
+          | More (Two a x)     m r => _
+          | More (Three a x y) m r => _
+          end).
+  - apply H1.
+  - apply H2.
+  - (* More (One a) m r — case-split on [head m], keep [m] as a variable *)
+    destruct (head m) as [ tup | ] eqn:Eh.
+    + destruct tup as [ x y | x y z ].
+      * (* head m = Some (Pair x y): case 8.  Rewrite via assert so Coq's
+           unifier discovers all the [Set Implicit Arguments]-promoted
+           implicits of [ftail_one_unfold_pair] from the goal. *)
+        assert (Hrw : ftail (More (One a) m r) = More (Two x y) (ftail m) r)
+          by (apply ftail_one_unfold_pair; exact Eh).
+        rewrite Hrw.
+        apply H8; [ apply SELF | exact Eh ].
+      * (* head m = Some (Triple x y z): case 9.  The lemma's [y], [z]
+           appear only in its hypothesis, so plain [apply] can't pin them
+           from the goal — use [eapply] and let [exact Eh] instantiate. *)
+        assert (Hrw : ftail (More (One a) m r) =
+                      More (One x) (map1 chop_triple m) r)
+          by (eapply ftail_one_unfold_triple; exact Eh).
+        rewrite Hrw.
+        eapply H9; exact Eh.
+    + (* head m = None ⟹ m = Nil — cases 5/6/7 *)
+      assert (Hm : m = Nil)
+        by (destruct m as [ | tu | [tu | tu tv | tu tv tw] mm rm];
+            simpl in Eh; try discriminate; reflexivity).
+      subst m.
+      destruct r as [ y | y z | y z w ].
+      * apply H5.
+      * apply H6.
+      * apply H7.
+  - (* More (Two a x) m r *) apply H4.
+  - (* More (Three a x y) m r *) apply H3.
+Qed.
+
+(** *** ftailA' / ftailA — clairvoyant version.
+
+    Mirrors the case structure of [ftail].  One tick per call.  The
+    One-front cascade case forces [fD], then [mD], then (when [m] is
+    non-empty) the front digit of [m]'s middle (if [m = MoreA _ _ _])
+    or the singleton tuple (if [m = UnitA _]), then the first element
+    thunk to dispatch on Pair vs Triple.
+
+    Design notes:
+    - The cascade is inlined (nested forcings, ~6 levels deep at the
+      worst path) rather than factored through a [ftailA_cascade]
+      helper.  Factoring would require either mutual recursion with
+      [ftailA'] (because the Pair-head case must recurse) or threading
+      [ftailA'] as a higher-order parameter.  We judged that inlining
+      keeps proofs flatter despite the depth.  Reconsider in Phase D if
+      [ftailD']'s proofs balloon.
+    - In the Pair-head sub-cases the recursion is on the same value [m]
+      from [forcing mD (fun m => ...)], not on [m]'s inner spine.  This
+      mirrors the pure [tail m] recursion in the corresponding case of
+      [ftail]. *)
+Fixpoint ftailA' (A : Type) (s : SeqA A) : M (SeqA A) :=
+  tick >>
+  match s with
+  | NilA    => ret NilA
+  | UnitA _ => ret NilA
+  | MoreA fD mD rD =>
+      forcing fD (fun f =>
+        match f with
+        | ThreeA _ xD yD =>
+            let~ f' := ret (TwoA xD yD) in
+            ret (MoreA f' mD rD)
+        | TwoA _ xD =>
+            let~ f' := ret (OneA xD) in
+            ret (MoreA f' mD rD)
+        | OneA _ =>
+            forcing mD (fun m =>
+              match m with
+              | NilA =>
+                  (* cases 5-7: m=Nil, reshape r *)
+                  forcing rD (fun r =>
+                    match r with
+                    | OneA yD => ret (UnitA yD)
+                    | TwoA yD zD =>
+                        let~ f' := ret (OneA yD) in
+                        let~ m' := ret NilA in
+                        let~ r' := ret (OneA zD) in
+                        ret (MoreA f' m' r')
+                    | ThreeA yD zD wD =>
+                        let~ f' := ret (OneA yD) in
+                        let~ m' := ret NilA in
+                        let~ r' := ret (TwoA zD wD) in
+                        ret (MoreA f' m' r')
+                    end)
+              | UnitA t =>
+                  (* head element is the lone tuple [t]; force to decide Pair vs Triple *)
+                  forcing t (fun tup =>
+                    match tup with
+                    | PairA xD yD =>
+                        (* case 8 (recursive): tail (Unit (Pair _ _)) reduces to NilA *)
+                        let~ f' := ret (TwoA xD yD) in
+                        let~ m' := ftailA' m in
+                        ret (MoreA f' m' rD)
+                    | TripleA xD yD zD =>
+                        (* case 9: map1 chop_triple (Unit (Triple _ _ _)) = Unit (Pair _ _) *)
+                        let~ f' := ret (OneA xD) in
+                        let~ pyz := ret (PairA yD zD) in
+                        let~ m' := ret (UnitA pyz) in
+                        ret (MoreA f' m' rD)
+                    end)
+              | MoreA fmD mmD rmD =>
+                  (* head element is the first slot of [fmD]'s digit *)
+                  forcing fmD (fun fm =>
+                    match fm with
+                    | OneA t =>
+                        forcing t (fun tup =>
+                          match tup with
+                          | PairA xD yD =>
+                              let~ f' := ret (TwoA xD yD) in
+                              let~ m' := ftailA' m in
+                              ret (MoreA f' m' rD)
+                          | TripleA xD yD zD =>
+                              let~ f'  := ret (OneA xD) in
+                              let~ pyz := ret (PairA yD zD) in
+                              let~ fm' := ret (OneA pyz) in
+                              let~ m'  := ret (MoreA fm' mmD rmD) in
+                              ret (MoreA f' m' rD)
+                          end)
+                    | TwoA t t' =>
+                        forcing t (fun tup =>
+                          match tup with
+                          | PairA xD yD =>
+                              let~ f' := ret (TwoA xD yD) in
+                              let~ m' := ftailA' m in
+                              ret (MoreA f' m' rD)
+                          | TripleA xD yD zD =>
+                              let~ f'  := ret (OneA xD) in
+                              let~ pyz := ret (PairA yD zD) in
+                              let~ fm' := ret (TwoA pyz t') in
+                              let~ m'  := ret (MoreA fm' mmD rmD) in
+                              ret (MoreA f' m' rD)
+                          end)
+                    | ThreeA t t' t'' =>
+                        forcing t (fun tup =>
+                          match tup with
+                          | PairA xD yD =>
+                              let~ f' := ret (TwoA xD yD) in
+                              let~ m' := ftailA' m in
+                              ret (MoreA f' m' rD)
+                          | TripleA xD yD zD =>
+                              let~ f'  := ret (OneA xD) in
+                              let~ pyz := ret (PairA yD zD) in
+                              let~ fm' := ret (ThreeA pyz t' t'') in
+                              let~ m'  := ret (MoreA fm' mmD rmD) in
+                              ret (MoreA f' m' rD)
+                          end)
+                    end)
+              end)
+        end)
+  end.
+
+Definition ftailA (A : Type) (q : T (SeqA A)) : M (SeqA A) :=
+  forcing q ftailA'.
+
+(** Monotonicity of [ftailA].  The proof would mirror [fconsA_mon]'s
+    structure but is substantially heavier due to the deeper case nesting
+    in the One-front cascade (6 levels of [forcing] versus [fconsA']'s
+    2).  Deferred — accept as [Admitted] per the task prompt; we will
+    return to it when [ftailD']'s proofs require it (Phase D/E may
+    actually side-step this need by proving cost properties directly
+    without going through monotonicity of [ftailA]). *)
+Lemma ftailA_mon (A : Type) `{LDA : LessDefined A, PreOrder A LDA}
+    (q1 q2 : T (SeqA A)) :
+    q1 `less_defined` q2 ->
+    ftailA q1 `less_defined` ftailA q2.
+Proof.
+  (* Would proceed by [invert_clear 1; try solve [ solve_mon ]] then
+     induct on the forced sequence, mirroring [fconsA_mon] but with
+     three extra levels of [forcing]/[bind_mon] in the One-front case. *)
+  admit.
+Admitted.
 
 (* ================================================================= *)
 (** ** Auxiliary Definitions                                     *)
