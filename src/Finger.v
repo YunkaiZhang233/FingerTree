@@ -2332,6 +2332,204 @@ Proof.
   simpl. apply ftailA'_mon. assumption.
 Qed.
 
+
+(* ================================================================= *)
+(** *** ftailD' — demand function for [ftail]. *)
+(* ================================================================= *)
+
+
+(** [add_pair_to_head_demand]: augments a spine demand with a [Pair]-head.
+    Used in the Pair-head recursive case of [ftailD']. *)
+
+Definition add_pair_to_head_digit {B : Type}
+    (xD yD : T B) (d : DigitA (TupleA B)) : DigitA (TupleA B) :=
+  match d with
+  | OneA _ => OneA (Thunk (PairA xD yD))
+  | TwoA _ t' => TwoA (Thunk (PairA xD yD)) t'
+  | ThreeA _ t' t'' => ThreeA (Thunk (PairA xD yD)) t' t''
+  end.
+
+Definition add_pair_to_head_demand_seq {B : Type}
+    (xD yD : T B) (s : SeqA (TupleA B)) : SeqA (TupleA B) :=
+  match s with
+  | NilA => NilA
+  | UnitA _ => UnitA (Thunk (PairA xD yD))
+  | MoreA fD mD rD =>
+      let fD' := match fD with
+                 | Thunk d => Thunk (add_pair_to_head_digit xD yD d)
+                 | Undefined => Thunk (OneA (Thunk (PairA xD yD)))
+                 end in
+      MoreA fD' mD rD
+  end.
+
+Definition add_pair_to_head_demand {B : Type}
+    (mD : T (SeqA (TupleA B))) (xD yD : T B) : T (SeqA (TupleA B)) :=
+  match mD with
+  | Thunk s => Thunk (add_pair_to_head_demand_seq xD yD s)
+  | Undefined => Thunk (UnitA (Thunk (PairA xD yD)))
+  end.
+
+
+(** [inverse_chop_demand]: rewrites a spine demand to undo [map1 chop_triple].
+    Used in the Triple-head non-recursive case of [ftailD']. *)
+
+Definition inverse_chop_tuple {B : Type}
+    (xD : T B) (t : T (TupleA B)) : T (TupleA B) :=
+  match t with
+  | Thunk (PairA yD zD) => Thunk (TripleA xD yD zD)
+  | Thunk (TripleA _ _ _) => t   (* shouldn't fire *)
+  | Undefined => Thunk (TripleA xD Undefined Undefined)
+  end.
+
+Definition inverse_chop_digit {B : Type}
+    (xD : T B) (d : DigitA (TupleA B)) : DigitA (TupleA B) :=
+  match d with
+  | OneA t => OneA (inverse_chop_tuple xD t)
+  | TwoA t t' => TwoA (inverse_chop_tuple xD t) t'
+  | ThreeA t t' t'' => ThreeA (inverse_chop_tuple xD t) t' t''
+  end.
+
+Definition inverse_chop_demand_seq {B : Type}
+    (xD : T B) (s : SeqA (TupleA B)) : SeqA (TupleA B) :=
+  match s with
+  | NilA => NilA
+  | UnitA t => UnitA (inverse_chop_tuple xD t)
+  | MoreA fD mD rD =>
+      let fD' := match fD with
+                 | Thunk d => Thunk (inverse_chop_digit xD d)
+                 | Undefined => Thunk (OneA (Thunk (TripleA xD Undefined Undefined)))
+                 end in
+      MoreA fD' mD rD
+  end.
+
+Definition inverse_chop_demand {B : Type}
+    (mD : T (SeqA (TupleA B))) (xD : T B) : T (SeqA (TupleA B)) :=
+  match mD with
+  | Thunk s => Thunk (inverse_chop_demand_seq xD s)
+  | Undefined => Thunk (UnitA (Thunk (TripleA xD Undefined Undefined)))
+  end.
+
+
+(** The main demand function. *)
+
+Fixpoint ftailD' (A B : Type) `{Exact A B} (s : Seq A) (outD : SeqA B)
+    : Tick (T (SeqA B)) :=
+  Tick.tick >>
+  match s with
+  | Nil =>
+      (* ftail Nil = Nil *)
+      match outD with
+      | NilA => Tick.ret Undefined
+      | _    => bottom
+      end
+
+  | Unit _ =>
+      (* ftail (Unit _) = Nil *)
+      match outD with
+      | NilA => Tick.ret (Thunk (UnitA Undefined))
+      | _    => bottom
+      end
+
+  | More (Three _ x y) m r =>
+      (* ftail = More (Two x y) m r *)
+      match outD with
+      | MoreA fD mD rD =>
+          let '(xD, yD) := match fD with
+                           | Thunk (TwoA xD yD) => (xD, yD)
+                           | _ => (Undefined, Undefined)
+                           end in
+          Tick.ret (Thunk (MoreA (Thunk (ThreeA Undefined xD yD)) mD rD))
+      | _ => bottom
+      end
+
+  | More (Two _ x) m r =>
+      (* ftail = More (One x) m r *)
+      match outD with
+      | MoreA fD mD rD =>
+          let xD := match fD with
+                    | Thunk (OneA xD) => xD
+                    | _ => Undefined
+                    end in
+          Tick.ret (Thunk (MoreA (Thunk (TwoA Undefined xD)) mD rD))
+      | _ => bottom
+      end
+
+  | More (One _) m r =>
+      match m with
+      | Nil =>
+          (* m empty: reshape r *)
+          match r, outD with
+          | One y, UnitA yD =>
+              Tick.ret (Thunk (MoreA (Thunk (OneA Undefined))
+                                      (Thunk NilA)
+                                      (Thunk (OneA yD))))
+          | Two y z, MoreA fD _ rD =>
+              let yD := match fD with
+                        | Thunk (OneA yD) => yD
+                        | _ => Undefined
+                        end in
+              let zD := match rD with
+                        | Thunk (OneA zD) => zD
+                        | _ => Undefined
+                        end in
+              Tick.ret (Thunk (MoreA (Thunk (OneA Undefined))
+                                      (Thunk NilA)
+                                      (Thunk (TwoA yD zD))))
+          | Three y z w, MoreA fD _ rD =>
+              let yD := match fD with
+                        | Thunk (OneA yD) => yD
+                        | _ => Undefined
+                        end in
+              let '(zD, wD) := match rD with
+                               | Thunk (TwoA zD wD) => (zD, wD)
+                               | _ => (Undefined, Undefined)
+                               end in
+              Tick.ret (Thunk (MoreA (Thunk (OneA Undefined))
+                                      (Thunk NilA)
+                                      (Thunk (ThreeA yD zD wD))))
+          | _, _ => bottom
+          end
+
+      | _ =>
+          (* m ≠ Nil. Case on head m. *)
+          match head m with
+          | Some (Pair _ _) =>
+              (* Recursive case *)
+              match outD with
+              | MoreA fD mD_out rD =>
+                  let '(xD, yD) := match fD with
+                                   | Thunk (TwoA xD yD) => (xD, yD)
+                                   | _ => (Undefined, Undefined)
+                                   end in
+                  let+ mD_rec := thunkD (ftailD' m) mD_out in
+                  let mD_in := add_pair_to_head_demand mD_rec xD yD in
+                  Tick.ret (Thunk (MoreA (Thunk (OneA Undefined)) mD_in rD))
+              | _ => bottom
+              end
+
+          | Some (Triple _ _ _) =>
+              (* Non-recursive case: chop the Triple *)
+              match outD with
+              | MoreA fD mD_out rD =>
+                  let xD := match fD with
+                            | Thunk (OneA xD) => xD
+                            | _ => Undefined
+                            end in
+                  let mD_in := inverse_chop_demand mD_out xD in
+                  Tick.ret (Thunk (MoreA (Thunk (OneA Undefined)) mD_in rD))
+              | _ => bottom
+              end
+
+          | None =>
+              (* unreachable: m ≠ Nil so head m ≠ None *)
+              bottom
+          end
+      end
+  end.
+
+Definition ftailD (A : Type) : Seq A -> SeqA A -> Tick (T (SeqA A)) :=
+  ftailD'.
+
 (* ================================================================= *)
 (** ** Auxiliary Definitions                                     *)
 (* ================================================================= *)
