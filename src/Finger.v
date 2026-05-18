@@ -2338,8 +2338,14 @@ Qed.
 (* ================================================================= *)
 
 
-(** [add_pair_to_head_demand]: augments a spine demand with a [Pair]-head.
-    Used in the Pair-head recursive case of [ftailD']. *)
+(** [add_pair_to_head_demand]: augments a spine demand with a [Pair]-head
+    element.  Used in the Pair-head recursive case of [ftailD'].
+
+    When the recursive demand is [Thunk s], reuse [add_pair_to_head_demand_seq]
+    on the inner SeqA value.  When the recursive demand is [Undefined], the
+    recursion didn't demand the spine; we still need a demand reflecting that
+    we forced [m]'s top and peeked at its head — so we branch on [m]'s outer
+    shape to produce a minimum demand matching [m]'s constructor and digit. *)
 
 Definition add_pair_to_head_digit {B : Type}
     (xD yD : T B) (d : DigitA (TupleA B)) : DigitA (TupleA B) :=
@@ -2362,12 +2368,27 @@ Definition add_pair_to_head_demand_seq {B : Type}
       MoreA fD' mD rD
   end.
 
-Definition add_pair_to_head_demand {B : Type}
+Definition add_pair_to_head_demand {A B : Type} `{Exact A B}
+    (m : Seq (Tuple A))
     (mD : T (SeqA (TupleA B))) (xD yD : T B) : T (SeqA (TupleA B)) :=
   match mD with
   | Thunk s => Thunk (add_pair_to_head_demand_seq xD yD s)
-  | Undefined => Thunk (UnitA (Thunk (PairA xD yD)))
+  | Undefined =>
+      match m with
+      | Nil => Undefined  (* unreachable: head m = Some (Pair _) *)
+      | Unit _ => Thunk (UnitA (Thunk (PairA xD yD)))
+      | More (One _) _ _ =>
+          Thunk (MoreA (Thunk (OneA (Thunk (PairA xD yD))))
+                       Undefined Undefined)
+      | More (Two _ _) _ _ =>
+          Thunk (MoreA (Thunk (TwoA (Thunk (PairA xD yD)) Undefined))
+                       Undefined Undefined)
+      | More (Three _ _ _) _ _ =>
+          Thunk (MoreA (Thunk (ThreeA (Thunk (PairA xD yD)) Undefined Undefined))
+                       Undefined Undefined)
+      end
   end.
+
 
 
 (** [inverse_chop_demand]: rewrites a spine demand to undo [map1 chop_triple].
@@ -2402,11 +2423,25 @@ Definition inverse_chop_demand_seq {B : Type}
       MoreA fD' mD rD
   end.
 
-Definition inverse_chop_demand {B : Type}
+Definition inverse_chop_demand {A B : Type} `{Exact A B}
+    (m : Seq (Tuple A))
     (mD : T (SeqA (TupleA B))) (xD : T B) : T (SeqA (TupleA B)) :=
   match mD with
   | Thunk s => Thunk (inverse_chop_demand_seq xD s)
-  | Undefined => Thunk (UnitA (Thunk (TripleA xD Undefined Undefined)))
+  | Undefined =>
+      match m with
+      | Nil => Undefined  (* unreachable: head m = Some (Triple _) *)
+      | Unit _ => Thunk (UnitA (Thunk (TripleA xD Undefined Undefined)))
+      | More (One _) _ _ =>
+          Thunk (MoreA (Thunk (OneA (Thunk (TripleA xD Undefined Undefined))))
+                       Undefined Undefined)
+      | More (Two _ _) _ _ =>
+          Thunk (MoreA (Thunk (TwoA (Thunk (TripleA xD Undefined Undefined)) Undefined))
+                       Undefined Undefined)
+      | More (Three _ _ _) _ _ =>
+          Thunk (MoreA (Thunk (ThreeA (Thunk (TripleA xD Undefined Undefined)) Undefined Undefined))
+                       Undefined Undefined)
+      end
   end.
 
 
@@ -2502,7 +2537,7 @@ Fixpoint ftailD' (A B : Type) `{Exact A B} (s : Seq A) (outD : SeqA B)
                                    | _ => (Undefined, Undefined)
                                    end in
                   let+ mD_rec := thunkD (ftailD' m) mD_out in
-                  let mD_in := add_pair_to_head_demand mD_rec xD yD in
+                  let mD_in := add_pair_to_head_demand m mD_rec xD yD in
                   Tick.ret (Thunk (MoreA (Thunk (OneA Undefined)) mD_in rD))
               | _ => bottom
               end
@@ -2515,7 +2550,7 @@ Fixpoint ftailD' (A B : Type) `{Exact A B} (s : Seq A) (outD : SeqA B)
                             | Thunk (OneA xD) => xD
                             | _ => Undefined
                             end in
-                  let mD_in := inverse_chop_demand mD_out xD in
+                  let mD_in := inverse_chop_demand m mD_out xD in
                   Tick.ret (Thunk (MoreA (Thunk (OneA Undefined)) mD_in rD))
               | _ => bottom
               end
@@ -2535,9 +2570,14 @@ Definition ftailD (A : Type) : Seq A -> SeqA A -> Tick (T (SeqA A)) :=
 
     Each lemma is initially [Admitted] with a comment describing what
     needs to be shown.  Fill in the proofs in dependency order:
-    helpers first, then the three main theorems. *)
-(* ================================================================= *)
+    helpers first, then the three main theorems.
 
+    Cost target: K=3 (matches [fconsD'_cost]'s effective bound and the
+    physicist's argument's budget convention).  K=2 would suffice for the
+    [mD_out = Thunk _] case, but the [mD_out = Undefined] sub-case of
+    Case 9 (Triple-head non-recursive) with [m = More (Two _ _) _ _]
+    binds at K=3. *)
+(* ================================================================= *)
 
 (* ----------------------------------------------------------------- *)
 (** **** Helper lemmas about [add_pair_to_head_demand] and [inverse_chop_demand]. *)
@@ -2550,32 +2590,45 @@ Definition ftailD (A : Type) : Seq A -> SeqA A -> Tick (T (SeqA A)) :=
     since potential depends only on digit constructors and outer [T] shape.
     The [Undefined → Thunk (UnitA ...)] case strictly DECREASES potential
     (from 1 to 0 under the safe convention), giving [≤] rather than [=]. *)
-Lemma debt_inverse_chop_demand_le (B : Type) `{LessDefined B}
-    (mD : T (SeqA (TupleA B))) (xD : T B) :
-  @Debitable_T _ (@Debitable_SeqA (TupleA B)) (inverse_chop_demand mD xD)
-    <= @Debitable_T _ (@Debitable_SeqA (TupleA B)) mD.
+Lemma debt_inverse_chop_demand_seq_le (B : Type) `{LessDefined B}
+    (s_out : SeqA (TupleA B)) (xD : T B) :
+  @Debitable_SeqA (TupleA B) (inverse_chop_demand_seq xD s_out)
+    <= @Debitable_SeqA (TupleA B) s_out.
 Proof.
-  (* By case-analysis on [mD]:
-     - mD = Undefined: result is Thunk (UnitA (Thunk (TripleA ...))), 
-       potential goes from 1 to 0.
-     - mD = Thunk s: case-split on s = NilA, UnitA, MoreA. 
-       The structural shape is preserved; only the head element changes,
-       which doesn't affect Debitable. *)
-  admit.
-Admitted.
+  destruct s_out as [| t | fD rD].
+  + (* s = NilA *) simpl. lia.
+  + (* s = UnitA t *) simpl. lia.
+  + (* s = MoreA fD m rD *) 
+    simpl.
+    (* Both sides have safe_T fD' / safe_T fD + Debitable_T m + safe_T rD *)
+    destruct fD as [d | ].
+    * (* fD = Thunk d *)
+      simpl.
+      destruct d as [t1 | t1 t2 | t1 t2 t3]; simpl; lia. 
+    * (* fD = Undefined *)
+      simpl. lia.
+Qed.
 
 
 (** [add_pair_to_head_demand] is potential-non-increasing.  Same argument as
     above: head element changes don't affect [Debitable]; the only
     potential change is [Undefined → Thunk (UnitA ...)] which decreases. *)
-Lemma debt_add_pair_to_head_demand_le (B : Type) `{LessDefined B}
-    (mD : T (SeqA (TupleA B))) (xD yD : T B) :
-  @Debitable_T _ (@Debitable_SeqA (TupleA B)) (add_pair_to_head_demand mD xD yD)
-    <= @Debitable_T _ (@Debitable_SeqA (TupleA B)) mD.
+Lemma debt_add_pair_to_head_demand_seq_le (B : Type) `{LessDefined B}
+    (s_out : SeqA (TupleA B)) (xD yD : T B) :
+  @Debitable_SeqA (TupleA B) (add_pair_to_head_demand_seq xD yD s_out)
+    <= @Debitable_SeqA (TupleA B) s_out.
 Proof.
-  (* Same shape as [debt_inverse_chop_demand_le]. *)
-  admit.
-Admitted.
+  destruct s_out as [| t | fD m rD].
+  + (* s = NilA *) simpl. lia.
+  + (* s = UnitA t *) simpl. lia.
+  + (* s = MoreA fD m rD *)
+    simpl.
+    destruct fD as [d | ].
+    * (* fD = Thunk d: inverse_chop_digit preserves digit constructor *)
+      destruct d as [t1 | t1 t2 | t1 t2 t3]; simpl; lia.
+    * (* fD = Undefined: replaced with Thunk (OneA _) *)
+      simpl. lia.
+Qed.
 
 
 (** [inverse_chop_demand] preserves approximation.  Given a demand on
@@ -2668,24 +2721,29 @@ Lemma ftailD'_cost : forall (A B : Type) `{LessDefined B, Exact A B}
     let inM := ftailD' s outD in
     let cost := Tick.cost inM in
     let inD := Tick.val inM in
-    debt inD + cost <= 2 + debt outD.
+    debt inD + cost <= 3 + debt outD.
 Proof.
-  (* By [ftail_ind].  Each case: compute debt inD + cost vs 2 + debt outD.
+  (* By [ftail_ind].  Each case: compute debt inD + cost vs 3 + debt outD.
   
-     1. Nil: 0 + 0 ≤ 2 + 0. Trivial.
-     2. Unit _: 0 + 1 ≤ 2 + 0. Trivial.
-     3. More (Three _ x y) m r: potential transfers from output (TwoA, contributes 1) 
-        to input (ThreeA, contributes 0); cost 1 absorbed. 0 + 1 ≤ 2 + 1. ✓
-     4. More (Two _ x) m r: TwoA → OneA loses potential. (1 + debt_rest) + 1 ≤ 2 + (0 + debt_rest). Need K=2. ✓
+     1. Nil: 0 + 0 ≤ 3 + 0. Trivial.
+     2. Unit _: 0 + 1 ≤ 3 + 0. Trivial.
+     3. More (Three _ x y) m r: potential transfers from output (TwoA, +1) 
+        to input (ThreeA, 0); cost 1 absorbed. K=0. ✓
+     4. More (Two _ x) m r: TwoA → OneA loses 1 potential. K=2. ✓
      5. More (One _) Nil (One _): trivial.
-     6. More (One _) Nil (Two _ _): TwoA rear losing potential. Needs K=2. ✓
+     6. More (One _) Nil (Two _ _): TwoA rear losing potential. K=2. ✓
      7. More (One _) Nil (Three _ _ _): ThreeA → TwoA gains potential. K=0. ✓
      8. More (One _) m r, Pair-head: recursive. Use IH + 
-        [debt_add_pair_to_head_demand_le] to bound debt inD by debt mD_rec.
+        [debt_add_pair_to_head_demand_seq_le] (Thunk case) or direct 
+        computation on [m]'s digit (Undefined case). K=3 binds at the
+        Two-front-in-m case with mD_out = Undefined.
      9. More (One _) m r, Triple-head: non-recursive. Use 
-        [debt_inverse_chop_demand_le] (potential-non-increasing). K=1.
+        [debt_inverse_chop_demand_seq_le] (Thunk case) or direct computation
+        on [m]'s digit (Undefined case). K=3 binds at the Two-front-in-m 
+        case with mD_out = Undefined.
      
-     Most cases close by `lia` or arithmetic after unfolding [debt] / [Debitable_T]. *)
+     Most Thunk-case sub-goals close by `lia` after [unfold_debt].  
+     Undefined-mD_out cases need separate case-splits on [m]'s digit. *)
   admit.
 Admitted.
 
@@ -2693,7 +2751,7 @@ Admitted.
 Lemma ftailD_cost (A : Type) `{LessDefined A} (q : Seq A) (outD : SeqA A) :
   outD `is_approx` ftail q ->
   let inM := ftailD q outD in
-  debt (Tick.val inM) + Tick.cost inM <= 2 + debt outD.
+  debt (Tick.val inM) + Tick.cost inM <= 3 + debt outD.
 Proof.
   intros. apply ftailD'_cost. auto.
 Admitted.
@@ -2714,7 +2772,7 @@ Lemma ftailD'_cost_bottom (A B : Type) `{LDB : LessDefined B, !Reflexive LDB, Ex
   debt (Tick.val inM) + Tick.cost inM <= 3.
 Proof.
   (* Specialize [ftailD'_cost] with [outD = bottom_of (exact (ftail q))]
-     and bound debt outD ≤ 1. (The +1 over K=2 from ftailD'_cost accounts 
+     and bound debt outD ≤ 1. (The +1 over K=3 from ftailD'_cost accounts 
      for the Two-front case where bottom_of's Undefined-rear contributes 1
      to potential vs the 0 we accounted for in the abstract analysis.)
      
