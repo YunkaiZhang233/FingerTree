@@ -2531,6 +2531,238 @@ Definition ftailD (A : Type) : Seq A -> SeqA A -> Tick (T (SeqA A)) :=
   ftailD'.
 
 (* ================================================================= *)
+(** *** Phase E: Big proofs for [ftailD'].
+
+    Each lemma is initially [Admitted] with a comment describing what
+    needs to be shown.  Fill in the proofs in dependency order:
+    helpers first, then the three main theorems. *)
+(* ================================================================= *)
+
+
+(* ----------------------------------------------------------------- *)
+(** **** Helper lemmas about [add_pair_to_head_demand] and [inverse_chop_demand]. *)
+(* ----------------------------------------------------------------- *)
+
+
+(** [inverse_chop_demand] preserves potential.  The transformation only
+    touches the head element of the spine (replacing [PairA yD zD] with
+    [TripleA xD yD zD]), which doesn't affect the [Debitable] computation
+    since potential depends only on digit constructors and outer [T] shape.
+    The [Undefined → Thunk (UnitA ...)] case strictly DECREASES potential
+    (from 1 to 0 under the safe convention), giving [≤] rather than [=]. *)
+Lemma debt_inverse_chop_demand_le (B : Type) `{LessDefined B}
+    (mD : T (SeqA (TupleA B))) (xD : T B) :
+  @Debitable_T _ (@Debitable_SeqA (TupleA B)) (inverse_chop_demand mD xD)
+    <= @Debitable_T _ (@Debitable_SeqA (TupleA B)) mD.
+Proof.
+  (* By case-analysis on [mD]:
+     - mD = Undefined: result is Thunk (UnitA (Thunk (TripleA ...))), 
+       potential goes from 1 to 0.
+     - mD = Thunk s: case-split on s = NilA, UnitA, MoreA. 
+       The structural shape is preserved; only the head element changes,
+       which doesn't affect Debitable. *)
+  admit.
+Admitted.
+
+
+(** [add_pair_to_head_demand] is potential-non-increasing.  Same argument as
+    above: head element changes don't affect [Debitable]; the only
+    potential change is [Undefined → Thunk (UnitA ...)] which decreases. *)
+Lemma debt_add_pair_to_head_demand_le (B : Type) `{LessDefined B}
+    (mD : T (SeqA (TupleA B))) (xD yD : T B) :
+  @Debitable_T _ (@Debitable_SeqA (TupleA B)) (add_pair_to_head_demand mD xD yD)
+    <= @Debitable_T _ (@Debitable_SeqA (TupleA B)) mD.
+Proof.
+  (* Same shape as [debt_inverse_chop_demand_le]. *)
+  admit.
+Admitted.
+
+
+(** [inverse_chop_demand] preserves approximation.  Given a demand on
+    [map1 chop_triple m] (i.e., where head Triples have been replaced by Pairs),
+    if [xD ≤ exact x] where [x] is the dropped first element of the head Triple,
+    then [inverse_chop_demand mD xD] is a valid approximation of [m]. *)
+Lemma inverse_chop_demand_approx (A B : Type) `{LDB : LessDefined B, !Reflexive LDB, Exact A B}
+    (m : Seq (Tuple A)) (mD : T (SeqA (TupleA B))) (xD : T B) (x y z : A) :
+  head m = Some (Triple x y z) ->
+  xD `is_approx` x ->
+  mD `is_approx` map1 chop_triple m ->
+  inverse_chop_demand mD xD `is_approx` m.
+Proof.
+  (* By case-analysis on [m].  Since head m = Some (Triple x y z), 
+     m has shape Unit (Triple ...) or More ((digit with Triple at head)) ... .
+     Walk through [map1 chop_triple]'s effect; verify the inverse rewrites
+     correctly to produce a value ≤ exact m. *)
+  admit.
+Admitted.
+
+
+(** [add_pair_to_head_demand] preserves approximation.  Given a demand 
+    [mD] that approximates the recursive [ftail m], augmenting it with
+    [PairA xD yD] at the head produces a valid approximation of [m]
+    (since [head m = Some (Pair x y)] and the recursion just dropped that head). *)
+Lemma add_pair_to_head_demand_approx (A B : Type) `{LDB : LessDefined B, !Reflexive LDB, Exact A B}
+    (m : Seq (Tuple A)) (mD : T (SeqA (TupleA B))) (xD yD : T B) (x y : A) :
+  head m = Some (Pair x y) ->
+  xD `is_approx` x ->
+  yD `is_approx` y ->
+  mD `is_approx` ftail m ->
+  add_pair_to_head_demand mD xD yD `is_approx` m.
+Proof.
+  (* By case-analysis on [m].  Since head m = Some (Pair x y), m has shape 
+     Unit (Pair x y) or More ((digit with Pair at head)) ... .
+     The ftail of these produces NilA (for Unit) or More(...) with the head 
+     dropped; augmenting reinstates the Pair head. *)
+  admit.
+Admitted.
+
+
+(* ----------------------------------------------------------------- *)
+(** **** Main theorem 1: [ftailD'_approx]
+
+    The input demand returned by [ftailD'] is a valid approximation of [s]. *)
+(* ----------------------------------------------------------------- *)
+
+
+Lemma ftailD'_approx : forall (A B : Type)
+    `{LDB : LessDefined B, !Reflexive LDB, Exact A B}
+    (s : Seq A) (outD : SeqA B),
+    outD `is_approx` ftail s ->
+    Tick.val (ftailD' s outD) `is_approx` s.
+Proof.
+  (* By [ftail_ind] over s. Nine cases:
+     1. Nil: trivial — inD = Undefined ≤ exact Nil.
+     2. Unit _: inD = Thunk (UnitA Undefined) ≤ exact (Unit _). 
+        (Undefined ≤ exact _ holds for any element.)
+     3. More (Three _ x y) m r: inD has front Thunk (ThreeA Undefined xD yD).
+        Need xD ≤ exact x, yD ≤ exact y from inverting outD.
+     4. More (Two _ x) m r: similar to 3.
+     5-7. More (One _) Nil <r>: structural rewrite of r's demand; verify each.
+     8. More (One _) m r with head m = Some (Pair _ _) — recursive:
+        Apply IH on m via the recursive ftailD' call; use 
+        [add_pair_to_head_demand_approx] for the augmentation.
+     9. More (One _) m r with head m = Some (Triple _ _ _) — non-recursive:
+        Use [inverse_chop_demand_approx]. *)
+  admit.
+Admitted.
+
+(* Corollary at B := A. *)
+Lemma ftailD_approx (A : Type) `{LDA : LessDefined A, !Reflexive LDA}
+    (q : Seq A) (outD : SeqA A) :
+  outD `is_approx` ftail q ->
+  Tick.val (ftailD q outD) `is_approx` q.
+Proof.
+  intros. eapply ftailD'_approx; eauto.
+Admitted.
+(* Note: change to Qed once ftailD'_approx is closed. *)
+
+
+(* ----------------------------------------------------------------- *)
+(** **** Main theorem 2: [ftailD'_cost] (amortized cost bound). *)
+(* ----------------------------------------------------------------- *)
+
+
+Lemma ftailD'_cost : forall (A B : Type) `{LessDefined B, Exact A B}
+    (s : Seq A) (outD : SeqA B),
+    outD `is_approx` ftail s ->
+    let inM := ftailD' s outD in
+    let cost := Tick.cost inM in
+    let inD := Tick.val inM in
+    debt inD + cost <= 2 + debt outD.
+Proof.
+  (* By [ftail_ind].  Each case: compute debt inD + cost vs 2 + debt outD.
+  
+     1. Nil: 0 + 0 ≤ 2 + 0. Trivial.
+     2. Unit _: 0 + 1 ≤ 2 + 0. Trivial.
+     3. More (Three _ x y) m r: potential transfers from output (TwoA, contributes 1) 
+        to input (ThreeA, contributes 0); cost 1 absorbed. 0 + 1 ≤ 2 + 1. ✓
+     4. More (Two _ x) m r: TwoA → OneA loses potential. (1 + debt_rest) + 1 ≤ 2 + (0 + debt_rest). Need K=2. ✓
+     5. More (One _) Nil (One _): trivial.
+     6. More (One _) Nil (Two _ _): TwoA rear losing potential. Needs K=2. ✓
+     7. More (One _) Nil (Three _ _ _): ThreeA → TwoA gains potential. K=0. ✓
+     8. More (One _) m r, Pair-head: recursive. Use IH + 
+        [debt_add_pair_to_head_demand_le] to bound debt inD by debt mD_rec.
+     9. More (One _) m r, Triple-head: non-recursive. Use 
+        [debt_inverse_chop_demand_le] (potential-non-increasing). K=1.
+     
+     Most cases close by `lia` or arithmetic after unfolding [debt] / [Debitable_T]. *)
+  admit.
+Admitted.
+
+(* Corollary at B := A. *)
+Lemma ftailD_cost (A : Type) `{LessDefined A} (q : Seq A) (outD : SeqA A) :
+  outD `is_approx` ftail q ->
+  let inM := ftailD q outD in
+  debt (Tick.val inM) + Tick.cost inM <= 2 + debt outD.
+Proof.
+  intros. apply ftailD'_cost. auto.
+Admitted.
+(* Note: change to Qed once ftailD'_cost is closed. *)
+
+
+(* ----------------------------------------------------------------- *)
+(** **** Main theorem 3: [ftailD'_cost_bottom]
+
+    Special case of [ftailD'_cost] for the [outD = bottom_of (exact (ftail q))] case,
+    used by the physicist's argument when the output demand is [Undefined]. *)
+(* ----------------------------------------------------------------- *)
+
+
+Lemma ftailD'_cost_bottom (A B : Type) `{LDB : LessDefined B, !Reflexive LDB, Exact A B}
+    (q : Seq A) :
+  let inM := ftailD' q (bottom_of (exact (ftail q))) in
+  debt (Tick.val inM) + Tick.cost inM <= 3.
+Proof.
+  (* Specialize [ftailD'_cost] with [outD = bottom_of (exact (ftail q))]
+     and bound debt outD ≤ 1. (The +1 over K=2 from ftailD'_cost accounts 
+     for the Two-front case where bottom_of's Undefined-rear contributes 1
+     to potential vs the 0 we accounted for in the abstract analysis.)
+     
+     Mirror [fconsD'_cost_bottom] structurally. *)
+  admit.
+Admitted.
+
+
+(* ----------------------------------------------------------------- *)
+(** **** Main theorem 4: [ftailD'_spec] (clairvoyance equivalence). *)
+(* ----------------------------------------------------------------- *)
+
+
+Lemma ftailD'_spec : forall (A B : Type)
+    `{LDB : LessDefined B, !Reflexive LDB, Exact A B}
+    (q : Seq A) (outD : SeqA B),
+    outD `is_approx` ftail q ->
+    forall qD, qD = Tick.val (ftailD' q outD) ->
+      let dcost := Tick.cost (ftailD' q outD) in
+      ftailA qD [[ fun out cost => outD `less_defined` out /\ cost <= dcost ]].
+Proof.
+  (* By [ftail_ind]. Each case uses [mgo_] / [keep_mgo_] to unfold 
+     [ftailA] (clairvoyant) and [ftailD'] (demand) in lockstep, exhibiting 
+     a witness that satisfies the optimistic spec.
+     
+     1-7. Non-recursive cases: structural witnessing.
+     8. Pair-head recursive: apply IH at the recursive [ftailD'] call site,
+        producing a sub-witness for [ftailA] on the recursive value.
+     9. Triple-head non-recursive: similar to 1-7 but with 
+        [inverse_chop_demand] threading the demand back.
+     
+     Closely mirrors [fconsD'_spec]. *)
+  admit.
+Admitted.
+
+(* Corollary at B := A. *)
+Lemma ftailD_spec (A : Type) `{LDA : LessDefined A, !Reflexive LDA}
+    (q : Seq A) (outD : SeqA A) :
+  outD `is_approx` ftail q ->
+  forall qD, qD = Tick.val (ftailD q outD) ->
+    let dcost := Tick.cost (ftailD q outD) in
+    ftailA qD [[ fun out cost => outD `less_defined` out /\ cost <= dcost ]].
+Proof.
+  intros. apply ftailD'_spec; auto.
+Admitted.
+(* Note: change to Qed once ftailD'_spec is closed. *)
+
+(* ================================================================= *)
 (** ** Auxiliary Definitions                                     *)
 (* ================================================================= *)
 
