@@ -2280,7 +2280,145 @@ Proof.
     destruct mD2 as [md_inner | ] eqn:EmD2.
 
     (* Thunk Case*)
-    + admit.
+    + (* Sub-assertion: split on md_inner shape *)
+      destruct md_inner as [| md_x | md_f md_m md_r] eqn:Emd_inner.
+
+      * (* md_inner = NilA *)
+        inversion IH as [? IH_inner Heq_md | Heq_md]; subst.
+        invert_clear Hq as [| | f1 ? m1 ? r1 ? Hf Hm Hr ].
+        cbn -[ftailA'].
+        apply tick_mon.
+        apply forcing_mon; [ assumption | intros f1' fD2' Hf' ].
+        inversion Hf'; subst.
+        (* OneA-OneA: cascade *)
+        {
+          inversion Hm; subst.
+          + cbn -[ftailA']. solve_mon.
+          + inversion H2; subst. cbn -[ftailA'].
+            solve_mon.
+        }
+        {
+          solve_mon.
+        }
+        {
+          solve_mon.
+        }
+
+      * (* md_inner = UnitA md_x *)
+        inversion IH as [? IH_inner Heq_md | Heq_md]; subst.
+        invert_clear Hq as [| | f1 ? m1 ? r1 ? Hf Hm Hr ].
+        cbn -[ftailA'].
+        apply tick_mon.
+        apply forcing_mon; [ assumption | intros f1' fD2' Hf' ].
+        inversion Hf'; subst.
+        {
+          inversion Hm; subst.
+          - cbn -[ftailA']. solve_mon.
+          - inversion H2; subst.
+            (* x = UnitA t, t ≤ md_x *)
+            cbn -[ftailA'].
+            inversion H3; subst.
+            + cbn -[ftailA']. solve_mon.
+            + (* t = Thunk tup_x, md_x = Thunk tup_md *)
+              cbn -[ftailA'].
+              (* tup_x ≤ tup_md — case-split *)
+              rename H0 into Htup.   (* H3 : tup_x ≤ tup_md *)
+              inversion Htup; subst.
+              all: solve_mon.
+        }
+        {
+          solve_mon.
+        }
+        {
+          solve_mon.
+        }
+
+      * (* md_inner = MoreA md_f md_m md_r *)
+        inversion IH as [? IH_inner Heq_md | Heq_md_2]; subst.
+        invert_clear Hq as [| | f1 ? m1 ? r1 ? Hf Hm Hr ].
+        cbn -[ftailA'].
+        apply tick_mon.
+        apply forcing_mon; [ assumption | intros f1' fD2' Hf' ].
+        inversion Hf'; subst.
+        (* OneA - OneA: cascade *)
+        {
+          inversion Hm; subst.
+          {
+            cbn -[ftailA']. solve_mon.
+          }
+          {
+            inversion H2; subst.
+            cbn -[ftailA'].
+            rename m1 into m0.
+            assert (Hrec : ftailA' (MoreA f0 m0 r0) 
+                  `less_defined` 
+                  ftailA' (MoreA md_f md_m md_r)).
+            { 
+              apply IH_inner; [ typeclasses eauto | auto]. 
+            }
+
+            (* Now case-split on f0 ≤ md_f for the spine front digit *)
+            apply forcing_mon; [ assumption | intros fm1 fm2 Hfm ].
+            inversion Hfm; subst.
+            (* OneA - OneA *)
+            {
+              apply forcing_mon; [ assumption | intros tup1 tup2 Htup ].
+              inversion Htup; subst.
+              (* PairA-PairA: USE Hrec *)
+              {
+                cbn -[ftailA'].
+                apply bind_mon; [ solve_mon | intros ? ? ? ].
+                apply bind_mon.
+                - apply thunk_mon. exact Hrec.
+                - intros ? ? ?. apply ret_mon. solve_mon.
+              }
+              (* TripleA-TripleA: no recursion *)
+               {
+                 cbn -[ftailA']. solve_mon.
+               }
+            }
+            (* TwoA - TwoA *)
+            {
+              apply forcing_mon; [ assumption | intros tup1 tup2 Htup ].
+              inversion Htup; subst.
+              (* PairA - PairA *)
+              {
+                cbn -[ftailA'].
+                apply bind_mon; [ solve_mon | intros ? ? ? ].
+                apply bind_mon.
+                - apply thunk_mon. exact Hrec.
+                - intros ? ? ?. apply ret_mon. solve_mon.
+              }
+              (* TripleA - TripleA *)
+              {
+                cbn -[ftailA']. solve_mon.
+              }
+            }
+            (* ThreeA - ThreeA *)
+            {
+              apply forcing_mon; [ assumption | intros tup1 tup2 Htup ].
+              inversion Htup; subst.
+              (* PairA - PairA *)
+              {
+                cbn -[ftailA'].
+                apply bind_mon; [ solve_mon | intros ? ? ? ].
+                apply bind_mon.
+                - apply thunk_mon. exact Hrec.
+                - intros ? ? ?. apply ret_mon. solve_mon.
+              }
+              (* TripleA - TripleA *)
+              {
+                cbn -[ftailA']. solve_mon.
+              }
+            }
+          }
+        }
+        {
+          solve_mon.
+        }
+        {
+          solve_mon.
+        }
 
     (* Undefined Case *)
     + assert (Hcase : ftailA' q1 `less_defined` ftailA' (MoreA fD2 Undefined rD2)).
@@ -2290,7 +2428,7 @@ Proof.
         simpl.
         solve_mon. }
       exact Hcase.
-Admitted.
+Qed.
 
 Lemma ftailA_mon (A : Type) `{LDA : LessDefined A, PreOrder A LDA}
     (q1 q2 : T (SeqA A)) :
