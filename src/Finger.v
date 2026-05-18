@@ -2145,34 +2145,81 @@ Definition ftailA (A : Type) (q : T (SeqA A)) : M (SeqA A) :=
     monotonicity obligations.  Use when proving monotonicity of a
     [Fixpoint] that recurses through a [let~] thunk, where [solve_mon]
     alone would over-peel into the recursive call's body. *)
-Ltac solve_mon_with IH :=
+Ltac solve_mon_traced :=
   repeat
-    (eassumption + reflexivity + eauto with mon + 
-     (apply IH; try eassumption; try (typeclasses eauto));
+    (idtac "loop iteration";
+     (eassumption + reflexivity + 
+      (idtac "trying eauto with mon"; eauto with mon));
     match goal with
     | [ H : less_defined _ _ |- _ ] =>
+      idtac "matched H";
       let t := type of H in
       match eval hnf in t with
-      | eq ?x ?y => change t with (eq x y) in H; subst x + subst y
+      | eq ?x ?y => idtac "subst on" x y; subst x + subst y
       end
     end +
     lazymatch goal with
     | [ |- less_defined (a := M _) _ _ ] =>
+      idtac "M-level goal";
       match goal with
       | [ |- less_defined (match ?x with _ => _ end) (match ?y with _ => _ end) ] =>
-        tryif constr_eq x y then let Ex := fresh "Ex" in destruct x eqn:Ex else
-        match goal with
-        | [ H : less_defined x y |- _ ] => inversion H
-        end
-      | [ |- less_defined (ret _) (ret _) ] => apply ret_mon
-      | [ |- less_defined (bind _ _) (bind _ _) ] => apply bind_mon; [ | intros ? ? ? ]
-      | [ |- less_defined (forcing _ _) (forcing _ _) ] => apply forcing_mon; [ | intros ? ? ? ]
-      | [ |- less_defined (force _) (force _) ] => apply force_mon
-      | [ |- less_defined (thunk ?u) (thunk ?v) ] => apply (thunk_mon u v)
-      | [ |- less_defined (fun _ _ => False) _ ] => apply bot_M
+        idtac "match-match";
+        tryif constr_eq x y then 
+          (idtac "same scrutinee, destructing"; 
+           let Ex := fresh "Ex" in destruct x eqn:Ex)
+        else
+          (idtac "different scrutinees, inverting";
+           match goal with
+           | [ H : less_defined x y |- _ ] => inversion H
+           end)
+      | [ |- less_defined (ret _) (ret _) ] => 
+          idtac "ret_mon"; apply ret_mon
+      | [ |- less_defined (bind _ _) (bind _ _) ] => 
+          idtac "bind_mon"; apply bind_mon; [ | intros ? ? ? ]
+      | [ |- less_defined (forcing _ _) (forcing _ _) ] => 
+          idtac "forcing_mon"; apply forcing_mon; [ | intros ? ? ? ]
+      | [ |- less_defined (force _) (force _) ] => 
+          idtac "force_mon"; apply force_mon
+      | [ |- less_defined (thunk ?u) (thunk ?v) ] => 
+          idtac "thunk_mon"; apply (thunk_mon u v)
+      | [ |- less_defined (fun _ _ => False) _ ] => 
+          idtac "bot_M"; apply bot_M
       end
-    | [ |- less_defined _ _ ] => constructor
+    | [ |- less_defined _ _ ] => 
+        idtac "constructor"; constructor
     end).
+
+Ltac solve_mon_stop_at_ftailA :=
+  repeat
+    (lazymatch goal with
+     | [ |- less_defined (ftailA' _) (ftailA' _) ] => fail
+     | _ => idtac
+     end;
+     (eassumption + reflexivity + eauto with mon;
+      match goal with
+      | [ H : less_defined _ _ |- _ ] =>
+        let t := type of H in
+        match eval hnf in t with
+        | eq ?x ?y => change t with (eq x y) in H; subst x + subst y
+        end
+      end +
+      lazymatch goal with
+      | [ |- less_defined (a := M _) _ _ ] =>
+        match goal with
+        | [ |- less_defined (match ?x with _ => _ end) (match ?y with _ => _ end) ] =>
+          tryif constr_eq x y then let Ex := fresh "Ex" in destruct x eqn:Ex else
+          match goal with
+          | [ H : less_defined x y |- _ ] => inversion H
+          end
+        | [ |- less_defined (ret _) (ret _) ] => apply ret_mon
+        | [ |- less_defined (bind _ _) (bind _ _) ] => apply bind_mon; [ | intros ? ? ? ]
+        | [ |- less_defined (forcing _ _) (forcing _ _) ] => apply forcing_mon; [ | intros ? ? ? ]
+        | [ |- less_defined (force _) (force _) ] => apply force_mon
+        | [ |- less_defined (thunk ?u) (thunk ?v) ] => apply (thunk_mon u v)
+        | [ |- less_defined (fun _ _ => False) _ ] => apply bot_M
+        end
+      | [ |- less_defined _ _ ] => constructor
+      end)).    
 
 (** Monotonicity of [ftailA].  The proof structure mirrors [headA_mon]:
     [invert_clear] the outer [T] less-defined hypothesis to dispatch
@@ -2215,14 +2262,34 @@ Proof.
               (q1 : SeqA A),
          q1 `less_defined` q2 ->
          ftailA' q1 `less_defined` ftailA' q2)).
-  - (* NilA *) intros A0 LDA0 PA0 q1 Hq. invert_clear Hq. simpl. solve_mon.
-  - (* UnitA *) intros A0 xA LDA0 PA0 q1 Hq. invert_clear Hq. simpl. solve_mon.
-  - (* MoreA — see comment above *)
-    intros A0 fD2 mD2 rD2 IH LDA0 PA0 q1 Hq.
-    invert_clear Hq. simpl. solve_mon.
-    all: (
-      invert_clear IH as [ ? IH_inner | ]).
-    admit.
+  
+  (* === Case NilA === *)
+  - intros A0 LDA0 PA0 q1 Hq.
+    assert (Hclose : ftailA' q1 `less_defined` ftailA' NilA).
+    { invert_clear Hq. simpl. solve_mon. }
+    exact Hclose.
+
+  (* === Case UnitA === *)
+  - intros A0 xA LDA0 PA0 q1 Hq.
+    assert (Hclose : ftailA' q1 `less_defined` ftailA' (UnitA xA)).
+    { invert_clear Hq. simpl. solve_mon. }
+    exact Hclose.
+  
+  (* === Case MoreA === *)
+  - intros A0 fD2 mD2 rD2 IH LDA0 PA0 q1 Hq.
+    destruct mD2 as [md_inner | ] eqn:EmD2.
+
+    (* Thunk Case*)
+    + admit.
+
+    (* Undefined Case *)
+    + assert (Hcase : ftailA' q1 `less_defined` ftailA' (MoreA fD2 Undefined rD2)).
+      { clear IH.
+        invert_clear Hq as [| | f1 ? m1 ? r1 ? Hf Hm Hr ].
+        invert_clear Hm.
+        simpl.
+        solve_mon. }
+      exact Hcase.
 Admitted.
 
 Lemma ftailA_mon (A : Type) `{LDA : LessDefined A, PreOrder A LDA}
