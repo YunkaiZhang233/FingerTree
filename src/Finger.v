@@ -4002,25 +4002,296 @@ Proof.
   (* === Case 9: More (One a) m r, head m = Some (Triple x y z), non-recursive === *)
   {
     intros A a x y z m r Hhead B LDB EAB outD Happrox.
-    refine (match outD with
-            | MoreA fD mD_out rD => _
-            | _ => _
-            end); intros;
-      try solve [ invert_clear Happrox ].
+    destruct outD; try (invert_clear Happrox; fail).
     invert_clear Happrox as [ | | ? ? ? ? ? ? HfD HmD_out HrD ].
     destruct m as [| t_m | fd_m m_spine r_d_m]; [ discriminate Hhead | | ].
-    
-    - (* m = Unit (Triple x y z) *)
+
+    - (* m = Unit t_m, t_m = Triple x y z *)
       simpl in Hhead. inversion Hhead. subst t_m. clear Hhead.
-      admit.
-    - (* m = More fd_m m_spine r_d_m *)
-      destruct fd_m as [t_m | t_m t_m' | t_m t_m' t_m''];
+      destruct t0 as [ s_inner | ].
+
+      (* Thunk s_inner *)
+      {
+        invert_clear HmD_out as [ | ? ? HsD ].
+        destruct t as [ [ t_x | | ] | ];
+          try (invert_clear HfD; invert_clear H; fail).
+
+        (* OneA t_x *)
+        {
+          change (Tick.val (ftailD' (More (One a) (Unit (Triple x y z)) r) 
+                                      (MoreA (Thunk (OneA t_x)) (Thunk s_inner) t1)))
+            with (Thunk (MoreA (Thunk (OneA Undefined)) 
+                          (inverse_chop_demand (Unit (Triple x y z)) (Thunk s_inner) t_x) 
+                          t1)).
+          pose proof (debt_inverse_chop_demand_Thunk_le 
+                        (Unit (Triple x y z)) s_inner t_x) as Hhelper.
+          assert (Hcost_eq : 
+            Tick.cost (ftailD' (More (One a) (Unit (Triple x y z)) r) 
+                                (MoreA (Thunk (OneA t_x)) (Thunk s_inner) t1)) = 1).
+          { 
+            simpl. auto. 
+          }
+          cbv zeta.
+          rewrite Hcost_eq.
+          cbn -[inverse_chop_demand] in *.
+          unfold debt in *.
+          lia.
+        }
+
+        (* Undefined fD *)
+        {
+          change (Tick.val (ftailD' (More (One a) (Unit (Triple x y z)) r) 
+                                      (MoreA Undefined (Thunk s_inner) t1)))
+            with (Thunk (MoreA (Thunk (OneA Undefined)) 
+                          (inverse_chop_demand (Unit (Triple x y z)) (Thunk s_inner) Undefined) 
+                          t1)).
+          pose proof (debt_inverse_chop_demand_Thunk_le 
+                        (Unit (Triple x y z)) s_inner Undefined) as Hhelper.
+          assert (Hcost_eq : 
+            Tick.cost (ftailD' (More (One a) (Unit (Triple x y z)) r) 
+                                (MoreA Undefined (Thunk s_inner) t1)) = 1).
+          { 
+            simpl. auto. 
+          }
+          cbv zeta.
+          rewrite Hcost_eq.
+          cbn -[inverse_chop_demand] in *.
+          unfold debt in *.
+          lia.
+        }
+      }
+
+      (* Undefined mD_out *)
+      {
+        destruct t as [ [ t_x | | ] | ];
+          try (invert_clear HfD; invert_clear H; fail).
+        (* OneA t_x *)
+        { 
+          cbn -[ftailD' inverse_chop_demand]. unfold debt in *. cbn in *. lia. 
+        }
+        (* Undefined fD *)
+        { 
+          cbn -[ftailD' inverse_chop_demand]. unfold debt in *. cbn in *. lia. 
+        }
+      }
+
+    - (* m = More fd_m m_spine r_d_m, fd_m has Triple x y z in first slot *)
+      destruct fd_m as [ t_m | t_m t_m' | t_m t_m' t_m'' ];
         simpl in Hhead; inversion Hhead; subst t_m; clear Hhead.
-      + admit.
-      + admit.
-      + admit.
+
+      (* fd_m = One (Triple x y z) *)
+      {
+        destruct t0 as [ s_inner | ].
+
+        (* Thunk s_inner *)
+        {
+          invert_clear HmD_out as [ | ? ? HsD ].
+          destruct t as [ [ t_x | | ] | ];
+            try (invert_clear HfD; invert_clear H; fail).
+
+          (* OneA t_x *)
+          {
+            change (Tick.val (ftailD' (More (One a) (More (One (Triple x y z)) m_spine r_d_m) r) 
+                                        (MoreA (Thunk (OneA t_x)) (Thunk s_inner) t1)))
+              with (Thunk (MoreA (Thunk (OneA Undefined)) 
+                            (inverse_chop_demand (More (One (Triple x y z)) m_spine r_d_m) (Thunk s_inner) t_x) 
+                            t1)).
+            pose proof (debt_inverse_chop_demand_Thunk_le 
+                          (More (One (Triple x y z)) m_spine r_d_m) s_inner t_x) as Hhelper.
+            assert (Hcost_eq : 
+              Tick.cost (ftailD' (More (One a) (More (One (Triple x y z)) m_spine r_d_m) r) 
+                                  (MoreA (Thunk (OneA t_x)) (Thunk s_inner) t1)) = 1).
+            { 
+              simpl. auto. 
+            }
+            cbv zeta.
+            rewrite Hcost_eq.
+            cbn -[inverse_chop_demand] in *.
+            unfold debt in *.
+            lia.
+          }
+
+          (* Undefined fD *)
+          {
+            change (Tick.val (ftailD' (More (One a) (More (One (Triple x y z)) m_spine r_d_m) r) 
+                                        (MoreA Undefined (Thunk s_inner) t1)))
+              with (Thunk (MoreA (Thunk (OneA Undefined)) 
+                            (inverse_chop_demand (More (One (Triple x y z)) m_spine r_d_m) (Thunk s_inner) Undefined) 
+                            t1)).
+            pose proof (debt_inverse_chop_demand_Thunk_le 
+                          (More (One (Triple x y z)) m_spine r_d_m) s_inner Undefined) as Hhelper.
+            assert (Hcost_eq : 
+              Tick.cost (ftailD' (More (One a) (More (One (Triple x y z)) m_spine r_d_m) r) 
+                                  (MoreA Undefined (Thunk s_inner) t1)) = 1).
+            { 
+              simpl. auto. 
+            }
+            cbv zeta.
+            rewrite Hcost_eq.
+            cbn -[inverse_chop_demand] in *.
+            unfold debt in *.
+            lia.
+          }
+        }
+
+        (* Undefined mD_out *)
+        {
+          destruct t as [ [ t_x | | ] | ];
+            try (invert_clear HfD; invert_clear H; fail).
+          { 
+            cbn -[ftailD' inverse_chop_demand]. 
+            unfold debt in *. cbn in *. 
+            lia. 
+          }
+          { 
+            cbn -[ftailD' inverse_chop_demand]. 
+            unfold debt in *. cbn in *. 
+            lia. 
+          }
+        }
+      }
+
+      (* fd_m = Two (Triple x y z) t_m' *)
+      {
+        destruct t0 as [ s_inner | ].
+
+        (* Thunk s_inner *)
+        {
+          invert_clear HmD_out as [ | ? ? HsD ].
+          destruct t as [ [ t_x | | ] | ];
+            try (invert_clear HfD; invert_clear H; fail).
+
+          (* OneA t_x *)
+          {
+            change (Tick.val (ftailD' (More (One a) (More (Two (Triple x y z) t_m') m_spine r_d_m) r) 
+                                        (MoreA (Thunk (OneA t_x)) (Thunk s_inner) t1)))
+              with (Thunk (MoreA (Thunk (OneA Undefined)) 
+                            (inverse_chop_demand (More (Two (Triple x y z) t_m') m_spine r_d_m) (Thunk s_inner) t_x) 
+                            t1)).
+            pose proof (debt_inverse_chop_demand_Thunk_le 
+                          (More (Two (Triple x y z) t_m') m_spine r_d_m) s_inner t_x) as Hhelper.
+            assert (Hcost_eq : 
+              Tick.cost (ftailD' (More (One a) (More (Two (Triple x y z) t_m') m_spine r_d_m) r) 
+                                  (MoreA (Thunk (OneA t_x)) (Thunk s_inner) t1)) = 1).
+            { 
+              simpl. auto. 
+            }
+            cbv zeta.
+            rewrite Hcost_eq.
+            cbn -[inverse_chop_demand] in *.
+            unfold debt in *.
+            lia.
+          }
+
+          (* Undefined fD *)
+          {
+            change (Tick.val (ftailD' (More (One a) (More (Two (Triple x y z) t_m') m_spine r_d_m) r) 
+                                        (MoreA Undefined (Thunk s_inner) t1)))
+              with (Thunk (MoreA (Thunk (OneA Undefined)) 
+                            (inverse_chop_demand (More (Two (Triple x y z) t_m') m_spine r_d_m) (Thunk s_inner) Undefined) 
+                            t1)).
+            pose proof (debt_inverse_chop_demand_Thunk_le 
+                          (More (Two (Triple x y z) t_m') m_spine r_d_m) s_inner Undefined) as Hhelper.
+            assert (Hcost_eq : 
+              Tick.cost (ftailD' (More (One a) (More (Two (Triple x y z) t_m') m_spine r_d_m) r) 
+                                  (MoreA Undefined (Thunk s_inner) t1)) = 1).
+            { 
+              simpl. auto. 
+            }
+            cbv zeta.
+            rewrite Hcost_eq.
+            cbn -[inverse_chop_demand] in *.
+            unfold debt in *.
+            lia.
+          }
+        }
+
+        (* Undefined mD_out *)
+        {
+          destruct t as [ [ t_x | | ] | ];
+            try (invert_clear HfD; invert_clear H; fail).
+          { 
+            cbn -[ftailD' inverse_chop_demand]. 
+            unfold debt in *. cbn in *. 
+            lia. 
+          }
+          { 
+            cbn -[ftailD' inverse_chop_demand]. 
+            unfold debt in *. cbn in *. 
+            lia. 
+          }
+        }
+      }
+
+      (* fd_m = Three (Triple x y z) t_m' t_m'' *)
+      {
+        destruct t0 as [ s_inner | ].
+
+        (* Thunk s_inner *)
+        {
+          invert_clear HmD_out as [ | ? ? HsD ].
+          destruct t as [ [ t_x | | ] | ];
+            try (invert_clear HfD; invert_clear H; fail).
+
+          (* OneA t_x *)
+          {
+            change (Tick.val (ftailD' (More (One a) (More (Three (Triple x y z) t_m' t_m'') m_spine r_d_m) r) 
+                                        (MoreA (Thunk (OneA t_x)) (Thunk s_inner) t1)))
+              with (Thunk (MoreA (Thunk (OneA Undefined)) 
+                            (inverse_chop_demand (More (Three (Triple x y z) t_m' t_m'') m_spine r_d_m) (Thunk s_inner) t_x) 
+                            t1)).
+            pose proof (debt_inverse_chop_demand_Thunk_le 
+                          (More (Three (Triple x y z) t_m' t_m'') m_spine r_d_m) s_inner t_x) as Hhelper.
+            assert (Hcost_eq : 
+              Tick.cost (ftailD' (More (One a) (More (Three (Triple x y z) t_m' t_m'') m_spine r_d_m) r) 
+                                  (MoreA (Thunk (OneA t_x)) (Thunk s_inner) t1)) = 1).
+            { 
+              simpl. auto. 
+            }
+            cbv zeta.
+            rewrite Hcost_eq.
+            cbn -[inverse_chop_demand] in *.
+            unfold debt in *.
+            lia.
+          }
+
+          (* Undefined fD *)
+          {
+            change (Tick.val (ftailD' (More (One a) (More (Three (Triple x y z) t_m' t_m'') m_spine r_d_m) r) 
+                                        (MoreA Undefined (Thunk s_inner) t1)))
+              with (Thunk (MoreA (Thunk (OneA Undefined)) 
+                            (inverse_chop_demand (More (Three (Triple x y z) t_m' t_m'') m_spine r_d_m) (Thunk s_inner) Undefined) 
+                            t1)).
+            pose proof (debt_inverse_chop_demand_Thunk_le 
+                          (More (Three (Triple x y z) t_m' t_m'') m_spine r_d_m) s_inner Undefined) as Hhelper.
+            assert (Hcost_eq : 
+              Tick.cost (ftailD' (More (One a) (More (Three (Triple x y z) t_m' t_m'') m_spine r_d_m) r) 
+                                  (MoreA Undefined (Thunk s_inner) t1)) = 1).
+            { 
+              simpl. auto. 
+            }
+            cbv zeta.
+            rewrite Hcost_eq.
+            cbn -[inverse_chop_demand] in *.
+            unfold debt in *.
+            lia.
+          }
+        }
+
+        (* Undefined mD_out *)
+        {
+          destruct t as [ [ t_x | | ] | ];
+            try (invert_clear HfD; invert_clear H; fail).
+          { 
+            cbn -[ftailD' inverse_chop_demand]. unfold debt in *. cbn in *. lia. 
+          }
+          { 
+            cbn -[ftailD' inverse_chop_demand]. unfold debt in *. cbn in *. lia. 
+          }
+        }
+      }
   }
-Admitted.
+Qed.
 
 (* Corollary at B := A. *)
 Lemma ftailD_cost (A : Type) `{LessDefined A} (q : Seq A) (outD : SeqA A) :
