@@ -4521,18 +4521,88 @@ Proof.
       }
   }
 
-  (* === Case 8: q = More (One a) m r, head m = Some (Pair x y), recursive ===
-     IH: ftailA on Tick.val (ftailD' m _) is well-specified.
-     Outer: ftailA' forces fD→OneA, mD→non-Nil spine, looks up head, finds Pair.
-            Recurses on m via ftailA'. Apply IH at the recursive call site.
-     Structurally mirrors Case 5 of fconsD'_spec. *)
+  (* === Case 8: q = More (One a) m r, head m = Some (Pair x y), recursive === *)
   {
-    (* intros A a x y m r IH Hhead B LDB HReflexive EAB outD Happrox qD HqD dcost.
+    intros A a x y m r IH Hhead B LDB HReflexive EAB outD Hnonil Happrox qD HqD dcost.
     revert Happrox.
-    destruct outD; intro Happrox; try (invert_clear Happrox; fail).
-    invert_clear Happrox as [ | | ? ? ? ? ? ? HfD HmD HrD ].
-    subst. simpl. *)
-    admit.
+    destruct outD; intro Happrox.
+    - invert_clear Happrox.
+    - invert_clear Happrox.
+    - invert_clear Happrox as [ | | ? ? ? ? ? ? HfD HmD_out HrD ].
+      subst. simpl.
+      
+      (* Destruct m to handle head matching *)
+      destruct m as [| t_m | fd_m m_spine r_d_m]; [discriminate Hhead | | ].
+      
+      (* m = Unit t_m, t_m = Pair x y *)
+      + simpl in Hhead. inversion Hhead. subst t_m. clear Hhead.
+        (* qD = Thunk (MoreA (Thunk (OneA Undefined)) mD_in rD) 
+          where mD_in = add_pair_to_head_demand (Unit (Pair x y)) (Tick.val ...) xD yD *)
+        destruct t0 as [ s_out | ].
+        * (* Thunk s_out, mD_rec = Tick.val (ftailD' (Unit (Pair x y)) s_out) *)
+          invert_clear HmD_out as [ | ? ? HsD ].
+          (* HsD : s_out ≤ exact (ftail (Unit (Pair x y))) = NilA *)
+          destruct t as [ [ | tx ty | ] | ];
+            try (invert_clear HfD; invert_clear H; fail).
+          (* Two *)
+          {
+            invert_clear HfD. invert_clear H.
+            simpl. mgo_.
+            inversion HsD; subst.
+            (* Now s_out = NilA *)
+            simpl.   (* reduce the match s_out *)
+            (* Goal should now be simpler *)
+            keep_mgo_.
+          }
+          (* Undefined *)
+          {
+            simpl. mgo_.
+            inversion HsD; subst.
+            simpl.
+            keep_mgo_.
+          }
+        * (* Undefined *)
+          simpl head. simpl.
+          (* Now Some (Pair x y) branch is selected; thunkD Undefined fires *)
+          destruct t as [ [ | tx ty | ] | ];
+            try (invert_clear HfD; invert_clear H; fail).
+          -- (* TwoA tx ty *)
+            invert_clear HfD. invert_clear H.
+            simpl. mgo_.
+            apply optimistic_thunk_go. mgo_.
+            apply optimistic_skip. mgo_.
+          -- (* Undefined *)
+            simpl. mgo_.
+            apply optimistic_skip. mgo_.
+            apply optimistic_skip. mgo_.
+      
+      (* m = More fd_m m_spine r_d_m *)
+      + destruct fd_m as [ t_m | t_m t_m' | t_m t_m' t_m'' ];
+          simpl in Hhead; inversion Hhead; subst t_m; clear Hhead.
+        
+        (* fd_m = One (Pair x y) *)
+        { 
+          destruct t0 as [ s_out | ].
+          * (* Thunk *)
+          Show.
+            admit.
+          * (* Undefined *)
+            admit. 
+        }
+        
+        (* fd_m = Two (Pair x y) t_m' *)
+        { 
+          destruct t0 as [ s_out | ].
+          * admit.
+          * admit. 
+        }
+        
+        (* fd_m = Three (Pair x y) t_m' t_m'' *)
+        { 
+          destruct t0 as [ s_out | ].
+          * admit. 
+          * admit.
+        }
   }
 
   (* === Case 9: q = More (One a) m r, head m = Some (Triple x y z), non-recursive === *)
