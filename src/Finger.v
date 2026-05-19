@@ -2017,6 +2017,7 @@ Proof.
   - (* More (Three a x y) m r *) apply H3.
 Qed.
 
+
 (** *** ftailA' / ftailA — clairvoyant version.
 
     Mirrors the case structure of [ftail].  One tick per call.  The
@@ -2414,7 +2415,7 @@ Definition add_pair_to_head_digit {B : Type}
   | OneA _ => OneA (Thunk (PairA xD yD))
   | TwoA _ t' => TwoA (Thunk (PairA xD yD)) t'
   | ThreeA _ t' t'' => ThreeA (Thunk (PairA xD yD)) t' t''
-  end.
+  end.  
 
 (** [undef_add_pair_to_head_digit]: build a minimal demand-digit when fD = Undefined.
     Constructor matches [m]'s front digit; head slot exposes [PairA xD yD]. *)
@@ -2460,6 +2461,20 @@ Definition add_pair_to_head_demand {A B : Type} `{Exact A B}
       end
   end.
 
+Lemma debt_add_pair_to_head_demand_Thunk_le 
+    {A B : Type} `{LessDefined B, Exact A B}
+    (m : Seq (Tuple A)) (sD : SeqA (TupleA B)) (xD yD : T B) :
+  @Debitable_T _ (@Debitable_SeqA (TupleA B)) (add_pair_to_head_demand m (Thunk sD) xD yD)
+    <= @Debitable_T _ (@Debitable_SeqA (TupleA B)) (Thunk sD).
+Proof.
+  destruct sD as [| t | fD_sD mD_inner rD_sD].
+  - simpl. unfold_debt. lia.
+  - simpl. unfold_debt. lia.
+  - simpl.
+    destruct fD_sD as [d | ].
+    + destruct d as [t1 | t1 t2 | t1 t2 t3]; sauto unfold:debt.
+    + destruct m as [| | m_d _ _]; [| | destruct m_d]; sauto unfold:debt.
+Qed.  
 
 (** The main demand function. *)
 
@@ -2581,6 +2596,60 @@ Fixpoint ftailD' (A B : Type) `{Exact A B} (s : Seq A) (outD : SeqA B)
 Definition ftailD (A : Type) : Seq A -> SeqA A -> Tick (T (SeqA A)) :=
   ftailD'.
 
+Lemma ftailD'_val_more (A B : Type) `{LDB : LessDefined B, Exact A B}
+    (a : Digit A) (m : Seq (Tuple A)) (r : Digit A) (outD : SeqA B) :
+  outD `is_approx` ftail (More a m r) ->
+  exists v, Tick.val (ftailD' (More a m r) outD) = Thunk v.
+Proof.
+  intros Happrox.
+  destruct a as [t1 | t1 t2 | t1 t2 t3].
+  - (* One t1 *)
+    destruct m as [| t_m | fd_m m_spine r_d_m].
+    + (* m = Nil *) 
+      destruct r as [w | w w' | w w' w''].
+      * (* r = One w. ftail = Unit w. outD ≤ UnitA _. *)
+        simpl in Happrox. invert_clear Happrox.
+        eexists. simpl. reflexivity.
+      * (* r = Two w w'. ftail = More _ _ _. outD ≤ MoreA _ _ _. *)
+        simpl in Happrox.
+        destruct outD as [| | fD mD rD]; try (invert_clear Happrox; fail).
+        eexists. simpl. reflexivity.
+      * (* r = Three. ftail = More _ _ _. *)
+        simpl in Happrox.
+        destruct outD as [| | fD mD rD]; try (invert_clear Happrox; fail).
+        cbn.
+        repeat (match goal with
+                | [ |- context [match ?x with _ => _ end] ] => destruct x; cbn
+                end);
+        eexists; reflexivity.
+
+    + (* m = Unit t_m. case on head. *)
+      simpl in Happrox.
+      destruct t_m as [u u' | u u' u''].
+      * (* head = Some (Pair u u') *)
+        destruct outD as [| | fD mD rD]; try (invert_clear Happrox; fail).
+        simpl.
+        destruct fD as [ [ | | ] | ]; destruct mD as [ | ]; eexists; simpl; reflexivity.
+      * (* head = Some (Triple u u' u'') *)
+        destruct outD as [| | fD mD rD]; try (invert_clear Happrox; fail).
+        simpl.
+        destruct fD as [ [ | | ] | ]; destruct mD as [ | ]; eexists; simpl; reflexivity.
+    + (* m = More _ _ _ *)
+      destruct fd_m as [t_fd | t_fd t_fd' | t_fd t_fd' t_fd''];
+      (destruct t_fd as [u u' | u u' u'']);
+      simpl in Happrox;
+      destruct outD as [| | fD mD rD]; try (invert_clear Happrox; fail); simpl;
+      destruct fD as [ [ | | ] | ]; destruct mD as [ | ]; eexists; simpl; reflexivity.
+  - (* Two t1 t2 *) 
+    simpl in Happrox.
+    destruct outD as [| | fD mD rD]; try (invert_clear Happrox; fail).
+    eexists. simpl. reflexivity.
+  - (* Three t1 t2 t3 *)
+    simpl in Happrox.
+    destruct outD as [| | fD mD rD]; try (invert_clear Happrox; fail).
+    destruct fD as [ [ | | ] | ]; destruct mD as [ | ]; eexists; simpl; reflexivity.
+Qed.
+Opaque ftailD'_val_more.
 (* ================================================================= *)
 (** *** Phase E: Big proofs for [ftailD'].
 
@@ -3441,7 +3510,501 @@ Proof.
      
      Most Thunk-case sub-goals close by `lia` after [unfold_debt].  
      Undefined-mD_out cases need separate case-splits on [m]'s digit. *)
-  admit.
+  intros A B LDB EAB s. revert A s B LDB EAB.
+  apply (ftail_ind (fun (A : Type) (s : Seq A) (s' : Seq A) =>
+    forall B LDB EAB outD,
+      outD `is_approx` s' ->
+      let inM := ftailD' s outD in
+      let cost := Tick.cost inM in
+      let inD := Tick.val inM in
+      debt inD + cost <= 3 + debt outD)).
+
+  (* === Case 1: Nil → Nil === *)
+  {
+    intros A B LDB EAB outD Happrox.
+    refine (match outD with
+            | NilA => _
+            | _ => _
+            end); intros;
+      try solve [ invert_clear Happrox ];
+    simpl; sauto unfold:debt.
+  }
+
+  (* === Case 2: Unit _ → Nil === *)
+  {
+    intros A x B LDB EAB outD Happrox.
+    refine (match outD with
+            | NilA => _
+            | _ => _
+            end); intros;
+      try solve [ invert_clear Happrox ];
+    simpl; sauto unfold:debt.
+  }
+
+  (* === Case 3: More (Three a x y) m r → More (Two x y) m r === *)
+  {
+    intros A a x y m r B LDB EAB outD Happrox.
+    refine (match outD with
+            | MoreA fD mD rD => _
+            | _ => _
+            end); intros;
+      try solve [ invert_clear Happrox ].
+    invert_clear Happrox as [ | | ? ? ? ? ? ? HfD HmD HrD ];
+    simpl.
+    destruct inD as [ fA | ].
+    - destruct fA;
+        try (invert_clear HfD; invert_clear H1; fail).
+      all: sauto unfold:debt.
+      (* TwoA t1 t2 *)
+    - sauto unfold:debt.
+    - sauto unfold:debt.
+    - invert_clear Happrox as [ | | ? ? ? ? ? ? HfD HmD HrD ].
+    subst inM cost inD.   (* or: unfold inM, cost, inD *)
+    simpl.
+    destruct fD as [ fA | ].
+      + destruct fA as [ t1 | t1 t2 | t1 t2 t3 ];
+          try (invert_clear HfD; invert_clear H1; fail); sauto unfold:debt.
+      + sauto unfold:debt.
+  }
+
+  (* === Case 4: More (Two a x) m r → More (One x) m r === *)
+  {
+    intros A a x m r B LDB EAB outD Happrox.
+    refine (match outD with
+            | MoreA fD mD rD => _
+            | _ => _
+            end); intros;
+      try solve [ invert_clear Happrox ].
+    invert_clear Happrox as [ | | ? ? ? ? ? ? HfD HmD HrD ].
+    simpl.
+    destruct inD as [ fA | ].
+    - destruct fA;
+        try (invert_clear HfD; invert_clear H1; fail);
+      sauto unfold:debt.
+    - sauto unfold:debt.
+    - sauto unfold:debt.
+    - invert_clear Happrox as [ | | ? ? ? ? ? ? HfD HmD HrD ].
+    subst inM cost inD.   (* or: unfold inM, cost, inD *)
+    simpl.
+    destruct fD as [ fA | ].
+      + destruct fA;
+          try (invert_clear HfD; invert_clear H1; fail); sauto unfold:debt.
+      + sauto unfold:debt.
+  }
+
+  (* === Case 5: More (One a) Nil (One y) → Unit y === *)
+  {
+    intros A a y B LDB EAB outD Happrox.
+    refine (match outD with
+            | UnitA yD => _
+            | _ => _
+            end); intros;
+      try solve [ invert_clear Happrox ];
+    simpl; sauto unfold:debt.
+  }
+
+  (* === Case 6: More (One a) Nil (Two y z) → More (One y) Nil (One z) === *)
+  {
+    intros A a y z B LDB EAB outD Happrox.
+    refine (match outD with
+            | MoreA fD mD rD => _
+            | _ => _
+            end); intros;
+      try solve [ invert_clear Happrox ].
+    invert_clear Happrox as [ | | ? ? ? ? ? ? HfD HmD HrD ];
+    simpl.
+    destruct inD as [ fA | ]; [ destruct fA | ];
+    sauto unfold:debt.
+    all: invert_clear Happrox as [ | | ? ? ? ? ? ? HfD HmD HrD ].
+    all: subst inM cost inD.   (* or: unfold inM, cost, inD *)
+    all: simpl.
+    - lia.
+    - lia.
+  }
+
+  (* === Case 7: More (One a) Nil (Three y z w) → More (One y) Nil (Two z w) === *)
+  {
+    intros A a y z w B LDB EAB outD Happrox.
+    refine (match outD with
+            | MoreA fD mD rD => _
+            | _ => _
+            end); intros;
+      try solve [ invert_clear Happrox ].
+    invert_clear Happrox as [ | | ? ? ? ? ? ? HfD HmD HrD ];
+    simpl.
+    sauto unfold:debt.
+    all: invert_clear Happrox as [ | | ? ? ? ? ? ? HfD HmD HrD ]; simpl.
+    {
+      subst cost inM.
+      sauto unfold:debt.
+    }
+    {
+      subst cost inM inD.
+      sauto unfold:debt.
+    }
+  }
+
+  (* === Case 8: More (One a) m r, head m = Some (Pair x y), recursive === *)
+  {
+    intros A a x y m r IH Hhead B LDB EAB outD Happrox.
+    destruct outD; try (invert_clear Happrox; fail).
+    invert_clear Happrox as [ | | ? ? ? ? ? ? HfD HmD_out HrD ].
+    cbv zeta in IH.
+    destruct m as [| t_m | fd_m m_spine r_d_m]; [ discriminate Hhead | | ].
+  
+  - (* m = Unit (Pair x y) *)
+    simpl in Hhead. inversion Hhead. subst t_m. clear Hhead.
+    destruct t0 as [ s_inner | ].
+    {
+      (* Thunk case *)
+      invert_clear HmD_out as [ | ? ? HsD ].
+      cbv zeta.
+      invert_clear HsD.
+      sauto unfold:debt.
+    }
+    {
+      (* Undefined case *)
+      invert_clear HmD_out.
+      simpl.
+      destruct t as [ [ | t_x t_x' | ] | ];
+        try (invert_clear HfD; invert_clear H; fail);
+        simpl;
+      sauto unfold:debt.
+    }
+
+  - (* m = More fd_m m_spine r_d_m *)
+    destruct fd_m as [t_m | t_m t_m' | t_m t_m' t_m''];
+    simpl in Hhead; inversion Hhead; subst t_m; clear Hhead;
+    cbv zeta.
+
+    (* fd_m = One *)
+    {
+      destruct t0 as [ s_inner | ].
+      (* Thunk s_inner *)
+      {
+        invert_clear HmD_out as [ | ? ? HsD ].
+        specialize (IH _ _ _ s_inner HsD).
+        destruct (Tick.val (ftailD' (More (One (Pair x y)) m_spine r_d_m) s_inner)) as [ sD | ] eqn:Erec.
+        (* Thunk sD: recursion returned a Thunk *)
+        {
+          destruct t as [ [ | t_x t_x' | ] | ];
+          try (invert_clear HfD; invert_clear H; fail).
+          (* Thunk Two *)
+          {
+            change (Tick.val (ftailD' (More (One a) (More (One (Pair x y)) m_spine r_d_m) r) (MoreA (Thunk (TwoA t_x t_x')) (Thunk s_inner) t1)))
+            with (Thunk (MoreA (Thunk (OneA Undefined)) 
+                          (add_pair_to_head_demand (More (One (Pair x y)) m_spine r_d_m) 
+                  (Tick.val (ftailD' (More (One (Pair x y)) m_spine r_d_m) s_inner)) t_x t_x') t1)).
+
+            rewrite Erec.
+
+            pose proof (debt_add_pair_to_head_demand_Thunk_le 
+              (More (One (Pair x y)) m_spine r_d_m) sD t_x t_x') as Hhelper.
+            assert (Hcost_eq : 
+            Tick.cost (ftailD' (More (One a) (More (One (Pair x y)) m_spine r_d_m) r) 
+                (MoreA (Thunk (TwoA t_x t_x')) (Thunk s_inner) t1))
+            = S (Tick.cost (ftailD' (More (One (Pair x y)) m_spine r_d_m) s_inner))).
+            {
+              simpl. auto.
+            }
+
+            rewrite Hcost_eq.
+
+            cbn -[ftailD' add_pair_to_head_demand] in *.
+            change (debt (Thunk sD)) with (debt sD) in IH.
+            unfold debt in *.
+            lia.
+          }
+          (* Undefined *)
+          {
+            change (Tick.val (ftailD' (More (One a) (More (One (Pair x y)) m_spine r_d_m) r) 
+                  (MoreA Undefined (Thunk s_inner) t1)))
+            with (Thunk (MoreA (Thunk (OneA Undefined)) 
+                          (add_pair_to_head_demand (More (One (Pair x y)) m_spine r_d_m) 
+            (Tick.val (ftailD' (More (One (Pair x y)) m_spine r_d_m) s_inner)) Undefined Undefined) t1)).
+
+            rewrite Erec.
+
+            pose proof (debt_add_pair_to_head_demand_Thunk_le 
+                          (More (One (Pair x y)) m_spine r_d_m) sD Undefined Undefined) as Hhelper.
+
+            assert (Hcost_eq : 
+              Tick.cost (ftailD' (More (One a) (More (One (Pair x y)) m_spine r_d_m) r) 
+                                  (MoreA Undefined (Thunk s_inner) t1))
+              = S (Tick.cost (ftailD' (More (One (Pair x y)) m_spine r_d_m) s_inner))).
+            {
+              simpl. auto.
+            }
+
+            rewrite Hcost_eq.
+
+            cbn -[ftailD' add_pair_to_head_demand] in *.
+            change (debt (Thunk sD)) with (debt sD) in IH.
+            unfold debt in *.
+            lia.
+          }
+        }
+        (* Undefined *)
+        {
+          assert (Hv_exists : exists v, Tick.val (ftailD' (More (One (Pair x y)) m_spine r_d_m) s_inner) = Thunk v).
+          { 
+            eapply ftailD'_val_more. eassumption. 
+          }
+          destruct Hv_exists as [v Hv].
+          rewrite Hv in Erec. discriminate.
+          }
+      }
+
+      (* Undefined *)
+      {
+        destruct t as [ [ | t_x t_x' | ] | ];
+          try (invert_clear HfD; invert_clear H; fail).
+        
+        (* Thunk *)
+        {
+          cbn -[ftailD' add_pair_to_head_demand].
+          unfold debt in *.
+          cbn in *.
+          lia.
+        }
+
+        (* Undefined *)
+        {
+          cbn -[ftailD' add_pair_to_head_demand].
+          unfold debt in *.
+          cbn in *.
+          lia.
+        }
+      }
+    }
+
+    (* fd_m = Two *)
+    {
+      destruct t0 as [ s_inner | ].
+      
+      (* Thunk *)
+      {
+        invert_clear HmD_out as [ | ? ? HsD ].
+        specialize (IH _ _ _ s_inner HsD).
+        destruct (Tick.val (ftailD' (More (Two (Pair x y) t_m') m_spine r_d_m) s_inner)) as [ sD | ] eqn:Erec.
+        
+        (* Thunk sD *)
+        {
+          destruct t as [ [ | t_x t_x' | ] | ];
+            try (invert_clear HfD; invert_clear H; fail).
+          
+          (* TwoA *)
+          {
+            change (Tick.val (ftailD' (More (One a) (More (Two (Pair x y) t_m') m_spine r_d_m) r) 
+                                       (MoreA (Thunk (TwoA t_x t_x')) (Thunk s_inner) t1)))
+              with (Thunk (MoreA (Thunk (OneA Undefined)) 
+                            (add_pair_to_head_demand (More (Two (Pair x y) t_m') m_spine r_d_m) 
+                                                      (Tick.val (ftailD' (More (Two (Pair x y) t_m') m_spine r_d_m) s_inner)) 
+                                                      t_x t_x') 
+                            t1)).
+            rewrite Erec.
+            pose proof (debt_add_pair_to_head_demand_Thunk_le 
+                          (More (Two (Pair x y) t_m') m_spine r_d_m) sD t_x t_x') as Hhelper.
+            assert (Hcost_eq : 
+              Tick.cost (ftailD' (More (One a) (More (Two (Pair x y) t_m') m_spine r_d_m) r) 
+                                  (MoreA (Thunk (TwoA t_x t_x')) (Thunk s_inner) t1))
+              = S (Tick.cost (ftailD' (More (Two (Pair x y) t_m') m_spine r_d_m) s_inner))).
+            {
+              simpl. auto.
+            }
+            rewrite Hcost_eq.
+            cbn -[ftailD' add_pair_to_head_demand] in *.
+            change (debt (Thunk sD)) with (debt sD) in IH.
+            unfold debt in *.
+            lia.
+          }
+          
+          (* Undefined *)
+          {
+            change (Tick.val (ftailD' (More (One a) (More (Two (Pair x y) t_m') m_spine r_d_m) r) 
+                                       (MoreA Undefined (Thunk s_inner) t1)))
+              with (Thunk (MoreA (Thunk (OneA Undefined)) 
+                            (add_pair_to_head_demand (More (Two (Pair x y) t_m') m_spine r_d_m) 
+                                                      (Tick.val (ftailD' (More (Two (Pair x y) t_m') m_spine r_d_m) s_inner)) 
+                                                      Undefined Undefined) 
+                            t1)).
+            rewrite Erec.
+            pose proof (debt_add_pair_to_head_demand_Thunk_le 
+                          (More (Two (Pair x y) t_m') m_spine r_d_m) sD Undefined Undefined) as Hhelper.
+            assert (Hcost_eq : 
+              Tick.cost (ftailD' (More (One a) (More (Two (Pair x y) t_m') m_spine r_d_m) r) 
+                                  (MoreA Undefined (Thunk s_inner) t1))
+              = S (Tick.cost (ftailD' (More (Two (Pair x y) t_m') m_spine r_d_m) s_inner))).
+            {
+              simpl. auto.
+            }
+            rewrite Hcost_eq.
+            cbn -[ftailD' add_pair_to_head_demand] in *.
+            change (debt (Thunk sD)) with (debt sD) in IH.
+            unfold debt in *.
+            lia.
+          }
+        }
+        
+        (* Undefined sD *)
+        {
+          assert (Hv_exists : exists v, Tick.val (ftailD' (More (Two (Pair x y) t_m') m_spine r_d_m) s_inner) = Thunk v).
+          { 
+            eapply ftailD'_val_more. eassumption. 
+          }
+          destruct Hv_exists as [v Hv].
+          rewrite Hv in Erec. discriminate.
+        }
+      }
+      
+      (* Undefined *)
+      {
+        destruct t as [ [ | t_x t_x' | ] | ];
+          try (invert_clear HfD; invert_clear H; fail).
+        
+        (* Thunk *)
+        {
+          cbn -[ftailD' add_pair_to_head_demand].
+          unfold debt in *.
+          cbn in *.
+          lia.
+        }
+        
+        (* Undefined *)
+        {
+          cbn -[ftailD' add_pair_to_head_demand].
+          unfold debt in *.
+          cbn in *.
+          lia.
+        }
+      }
+    }
+
+    (* fd_m = Three *)
+    {
+      destruct t0 as [ s_inner | ].
+      
+      (* Thunk *)
+      {
+        invert_clear HmD_out as [ | ? ? HsD ].
+        specialize (IH _ _ _ s_inner HsD).
+        destruct (Tick.val (ftailD' (More (Three (Pair x y) t_m' t_m'') m_spine r_d_m) s_inner)) as [ sD | ] eqn:Erec.
+        
+        (* Thunk sD *)
+        {
+          destruct t as [ [ | t_x t_x' | ] | ];
+            try (invert_clear HfD; invert_clear H; fail).
+          
+          (* TwoA *)
+          {
+            change (Tick.val (ftailD' (More (One a) (More (Three (Pair x y) t_m' t_m'') m_spine r_d_m) r) 
+                                       (MoreA (Thunk (TwoA t_x t_x')) (Thunk s_inner) t1)))
+              with (Thunk (MoreA (Thunk (OneA Undefined)) 
+                            (add_pair_to_head_demand (More (Three (Pair x y) t_m' t_m'') m_spine r_d_m) 
+                                                      (Tick.val (ftailD' (More (Three (Pair x y) t_m' t_m'') m_spine r_d_m) s_inner)) 
+                                                      t_x t_x') 
+                            t1)).
+            rewrite Erec.
+            pose proof (debt_add_pair_to_head_demand_Thunk_le 
+                          (More (Three (Pair x y) t_m' t_m'') m_spine r_d_m) sD t_x t_x') as Hhelper.
+            assert (Hcost_eq : 
+              Tick.cost (ftailD' (More (One a) (More (Three (Pair x y) t_m' t_m'') m_spine r_d_m) r) 
+                                  (MoreA (Thunk (TwoA t_x t_x')) (Thunk s_inner) t1))
+              = S (Tick.cost (ftailD' (More (Three (Pair x y) t_m' t_m'') m_spine r_d_m) s_inner))).
+            {
+              simpl. auto.
+            }
+            rewrite Hcost_eq.
+            cbn -[ftailD' add_pair_to_head_demand] in *.
+            change (debt (Thunk sD)) with (debt sD) in IH.
+            unfold debt in *.
+            lia.
+          }
+          
+          (* Undefined *)
+          {
+            change (Tick.val (ftailD' (More (One a) (More (Three (Pair x y) t_m' t_m'') m_spine r_d_m) r) 
+                                       (MoreA Undefined (Thunk s_inner) t1)))
+              with (Thunk (MoreA (Thunk (OneA Undefined)) 
+                            (add_pair_to_head_demand (More (Three (Pair x y) t_m' t_m'') m_spine r_d_m) 
+                                                      (Tick.val (ftailD' (More (Three (Pair x y) t_m' t_m'') m_spine r_d_m) s_inner)) 
+                                                      Undefined Undefined) 
+                            t1)).
+            rewrite Erec.
+            pose proof (debt_add_pair_to_head_demand_Thunk_le 
+                          (More (Three (Pair x y) t_m' t_m'') m_spine r_d_m) sD Undefined Undefined) as Hhelper.
+            assert (Hcost_eq : 
+              Tick.cost (ftailD' (More (One a) (More (Three (Pair x y) t_m' t_m'') m_spine r_d_m) r) 
+                                  (MoreA Undefined (Thunk s_inner) t1))
+              = S (Tick.cost (ftailD' (More (Three (Pair x y) t_m' t_m'') m_spine r_d_m) s_inner))).
+            {
+              simpl. auto.
+            }
+            rewrite Hcost_eq.
+            cbn -[ftailD' add_pair_to_head_demand] in *.
+            change (debt (Thunk sD)) with (debt sD) in IH.
+            unfold debt in *.
+            lia.
+          }
+        }
+        
+        (* Undefined sD *)
+        {
+          assert (Hv_exists : exists v, Tick.val (ftailD' (More (Three (Pair x y) t_m' t_m'') m_spine r_d_m) s_inner) = Thunk v).
+          { 
+            eapply ftailD'_val_more. eassumption. 
+          }
+          destruct Hv_exists as [v Hv].
+          rewrite Hv in Erec. discriminate.
+        }
+      }
+      
+      (* Undefined *)
+      {
+        destruct t as [ [ | t_x t_x' | ] | ];
+          try (invert_clear HfD; invert_clear H; fail).
+        
+        (* Thunk *)
+        {
+          cbn -[ftailD' add_pair_to_head_demand].
+          unfold debt in *.
+          cbn in *.
+          lia.
+        }
+        
+        (* Undefined *)
+        {
+          cbn -[ftailD' add_pair_to_head_demand].
+          unfold debt in *.
+          cbn in *.
+          lia.
+        }
+      }
+    }
+
+  }
+
+  (* === Case 9: More (One a) m r, head m = Some (Triple x y z), non-recursive === *)
+  {
+    intros A a x y z m r Hhead B LDB EAB outD Happrox.
+    refine (match outD with
+            | MoreA fD mD_out rD => _
+            | _ => _
+            end); intros;
+      try solve [ invert_clear Happrox ].
+    invert_clear Happrox as [ | | ? ? ? ? ? ? HfD HmD_out HrD ].
+    destruct m as [| t_m | fd_m m_spine r_d_m]; [ discriminate Hhead | | ].
+    
+    - (* m = Unit (Triple x y z) *)
+      simpl in Hhead. inversion Hhead. subst t_m. clear Hhead.
+      admit.
+    - (* m = More fd_m m_spine r_d_m *)
+      destruct fd_m as [t_m | t_m t_m' | t_m t_m' t_m''];
+        simpl in Hhead; inversion Hhead; subst t_m; clear Hhead.
+      + admit.
+      + admit.
+      + admit.
+  }
 Admitted.
 
 (* Corollary at B := A. *)
