@@ -2938,21 +2938,463 @@ Lemma ftailD'_approx : forall (A B : Type)
     outD `is_approx` ftail s ->
     Tick.val (ftailD' s outD) `is_approx` s.
 Proof.
-  (* By [ftail_ind] over s. Nine cases:
-     1. Nil: trivial — inD = Undefined ≤ exact Nil.
-     2. Unit _: inD = Thunk (UnitA Undefined) ≤ exact (Unit _). 
-        (Undefined ≤ exact _ holds for any element.)
-     3. More (Three _ x y) m r: inD has front Thunk (ThreeA Undefined xD yD).
-        Need xD ≤ exact x, yD ≤ exact y from inverting outD.
-     4. More (Two _ x) m r: similar to 3.
-     5-7. More (One _) Nil <r>: structural rewrite of r's demand; verify each.
-     8. More (One _) m r with head m = Some (Pair _ _) — recursive:
-        Apply IH on m via the recursive ftailD' call; use 
-        [add_pair_to_head_demand_approx] for the augmentation.
-     9. More (One _) m r with head m = Some (Triple _ _ _) — non-recursive:
-        Use [inverse_chop_demand_approx]. *)
-  admit.
-Admitted.
+(* By [ftail_ind] over s. Nine cases.  Each non-trivial case starts by
+   refining on [outD]'s shape (since [ftailD'] returns [bottom] for shape
+   mismatches; the [outD ≤ exact (ftail s)] hypothesis discharges 
+   impossible shapes).
+   
+   1. Nil: ftailD' = Tick.ret Undefined.  Trivial: Undefined ≤ exact Nil.
+   2. Unit _: ftailD' = Tick.ret (Thunk (UnitA Undefined)).
+      Undefined ≤ exact (the element), so UnitA Undefined ≤ exact (Unit _).
+   3. More (Three a x y) m r: ftail = More (Two x y) m r.
+      Extract xD, yD from outD's front (TwoA).  Result has 
+      front ThreeA Undefined xD yD.  Need Undefined ≤ exact a (trivial),
+      xD ≤ exact x, yD ≤ exact y (from outD).
+   4. More (Two a x) m r: ftail = More (One x) m r.  Same shape as 3.
+   5-7. More (One a) Nil <r>: ftail reshapes r.
+      Three sub-cases on r; each extracts demand elements from outD
+      and rebuilds.  All structural.
+   8. More (One a) m r with head m = Some (Pair x y), recursive:
+      ftail = More (Two x y) (ftail m) r.  Recursive call to ftailD' m
+      gives mD_rec ≤ exact m (via IH).  Then add_pair_to_head_demand m mD_rec xD yD
+      remains ≤ exact m by [add_pair_to_head_demand_approx].
+   9. More (One a) m r with head m = Some (Triple x y z), non-recursive:
+      ftail = More (One x) (map1 chop_triple m) r.  Use 
+      [inverse_chop_demand_approx] with mD_out ≤ exact (map1 chop_triple m). *)
+  intros ? ? LDB RLDB EAB ? ?. revert A s B LDB RLDB EAB outD.
+  apply (ftail_ind (fun A s s' =>
+    forall B `{LDB : LessDefined B, !Reflexive LDB, Exact A B}
+           (outD : SeqA B),
+      outD `less_defined` exact s' ->
+      Tick.val (ftailD' s outD) `less_defined` exact s));
+    intros until outD.
+
+  (* === Case 1: Nil → Nil === *)
+  {
+    refine (match outD with
+            | NilA => _
+            | _ => _
+            end); intro Happrox;
+      try solve [ invert_clear Happrox ];
+      repeat constructor.
+  }
+
+  (* === Case 2: Unit x → Nil === *)
+  {
+    refine (match outD with
+            | NilA => _
+            | _ => _
+            end); intro Happrox;
+      try solve [ invert_clear Happrox ];
+      repeat constructor.
+  }
+
+  (* === Case 3: More (Three a x y) m r → More (Two x y) m r === *)
+  {
+    refine (match outD with
+            | MoreA fD mD rD => _
+            | _ => _
+            end); intro Happrox;
+      try solve [ invert_clear Happrox ].
+    invert_clear Happrox as [ | | ? ? ? ? ? ? HfD HmD HrD ].
+    simpl.
+    destruct fD as [ fA | ].
+    - (* Thunk fA *)
+      destruct fA as [ t1 | t1 t2 | t1 t2 t3 ].
+      + (* OneA — contradicts HfD *)
+        invert_clear HfD. invert_clear H0.
+      + (* TwoA t1 t2 *)
+        invert_clear HfD. invert_clear H0.
+        repeat constructor; auto.
+      + (* ThreeA — contradicts HfD *)
+        invert_clear HfD. invert_clear H0.
+    - (* Undefined *)
+      simpl. repeat constructor; auto.
+  }
+
+  (* === Case 4: More (Two a x) m r → More (One x) m r === *)
+  {
+    refine (match outD with
+            | MoreA fD mD rD => _
+            | _ => _
+            end); intro Happrox;
+      try solve [ invert_clear Happrox ].
+    invert_clear Happrox as [ | | ? ? ? ? ? ? HfD HmD HrD ].
+    simpl.
+    destruct fD as [ fA | ].
+    - destruct fA as [ t1 | t1 t2 | t1 t2 t3 ].
+      + (* OneA t1 *)
+        invert_clear HfD. invert_clear H0.
+        repeat constructor; auto.
+      + invert_clear HfD. invert_clear H0.
+      + invert_clear HfD. invert_clear H0.
+    - simpl. repeat constructor; auto.
+  }
+
+  (* === Case 5: More (One a) Nil (One y) → Unit y === *)
+  {
+    refine (match outD with
+            | UnitA yD => _
+            | _ => _
+            end); intro Happrox;
+      try solve [ invert_clear Happrox ].
+    invert_clear Happrox.
+    simpl. repeat constructor; auto.
+  }
+
+  (* === Case 6: More (One a) Nil (Two y z) → More (One y) Nil (One z) === *)
+  {
+    refine (match outD with
+            | MoreA fD mD rD => _
+            | _ => _
+            end); intro Happrox;
+      try solve [ invert_clear Happrox ].
+    invert_clear Happrox as [ | | ? ? ? ? ? ? HfD HmD HrD ].
+    simpl.
+    peel_and_close.
+    {
+      destruct fD as [ fA | ]; [ destruct fA as [ t1 | t1 t2 | t1 t2 t3 ] | ].
+      - invert_clear HfD. invert_clear H0. assumption.
+      - peel_and_close.
+      - peel_and_close.
+      - peel_and_close.
+    }
+    {
+      destruct rD as [ rA | ]; [ destruct rA as [ s1 | s1 s2 | s1 s2 s3 ] | ].
+      - invert_clear HrD. invert_clear H0. assumption.
+      - peel_and_close.
+      - peel_and_close.
+      - peel_and_close.
+    }
+    {
+      destruct fD as [ fA | ]; [ destruct fA as [ t1 | t1 t2 | t1 t2 t3 ] | ].
+      - invert_clear HfD. invert_clear H0. assumption.
+      - peel_and_close.
+      - peel_and_close.
+      - peel_and_close.
+    }
+    {
+      destruct rD as [ rA | ]; [ destruct rA as [ s1 | s1 s2 | s1 s2 s3 ] | ].
+      - invert_clear HrD. invert_clear H0. assumption.
+      - peel_and_close.
+      - peel_and_close.
+      - peel_and_close.
+    }
+  }
+
+
+  (* === Case 7: More (One a) Nil (Three y z w) → More (One y) Nil (Two z w) === *)
+  {
+    refine (match outD with
+            | MoreA fD mD rD => _
+            | _ => _
+            end); intro Happrox;
+      try solve [ invert_clear Happrox ].
+    invert_clear Happrox as [ | | ? ? ? ? ? ? HfD HmD HrD ].
+    simpl.
+    destruct fD as [ fA | ].
+    - destruct fA as [ t1 | t1 t2 | t1 t2 t3 ].
+      + (* OneA t1 — valid, t1 = yD *)
+        destruct rD as [ rA | ].
+        * destruct rA as [ s1 | s1 s2 | s1 s2 s3 ].
+          -- (* OneA — invalid by HrD *)
+            invert_clear HrD. invert_clear H0.
+          -- (* TwoA s1 s2 — valid, (s1, s2) = (zD, wD) *)
+            invert_clear HfD. invert_clear H0.
+            invert_clear HrD. invert_clear H0.
+            peel_and_close.
+            peel_and_close.
+            
+          -- (* ThreeA — invalid *)
+            invert_clear HrD. invert_clear H0.
+        * (* rD = Undefined — (zD, wD) = (Undefined, Undefined) *)
+          invert_clear HfD. invert_clear H0.
+          repeat constructor; auto.
+      + (* TwoA — invalid by HfD *)
+        invert_clear HfD. invert_clear H0.
+      + (* ThreeA — invalid *)
+        invert_clear HfD. invert_clear H0.
+    - (* fD = Undefined — yD = Undefined *)
+      destruct rD as [ rA | ].
+      + destruct rA as [ s1 | s1 s2 | s1 s2 s3 ].
+        * invert_clear HrD. invert_clear H0.
+        * (* TwoA s1 s2 *)
+          invert_clear HrD. invert_clear H0.
+          repeat constructor; auto.
+        * invert_clear HrD. invert_clear H0.
+      + (* rD = Undefined *)
+        repeat constructor; auto.
+  }
+
+
+  (* === Case 8: More (One a) m r, head m = Some (Pair x y), recursive === *)
+  {
+    rename H into IH.
+    rename H0 into Hhead.
+    refine (match outD with
+            | MoreA fD mD_out rD => _
+            | _ => _
+            end); intro Happrox;
+      try solve [ invert_clear Happrox ].
+    invert_clear Happrox as [ | | ? ? ? ? ? ? HfD HmD_out HrD ].
+
+    (* Destruct m: Nil discharged via Hhead; Unit and More are real cases. *)
+    destruct m as [| t_m | fd_m m_spine r_d_m]; [ discriminate Hhead | | ].
+
+    - (* m = Unit t_m. From Hhead: t_m = Pair x y *)
+      simpl in Hhead. inversion Hhead. subst t_m. clear Hhead.
+      simpl.   (* reduces ftailD' to its body for More (One a) (Unit (Pair x y)) r *)
+      
+      (* mD_out cases *)
+      invert_clear HmD_out as [ | s1D s2D HsD ].
+      + (* mD_out = Undefined *)
+        simpl.
+        destruct fD as [ fA | ].
+        * destruct fA as [ t1 | t1 t2 | t1 t2 t3 ].
+          -- (* OneA — contradicts HfD *)
+            invert_clear HfD. invert_clear H.
+          -- (* TwoA t1 t2 *)
+            invert_clear HfD. invert_clear H.
+            peel_and_close.
+          -- invert_clear HfD. invert_clear H.
+        * (* fD = Undefined *)
+          peel_and_close.
+      + (* mD_out = Thunk s1D, HsD : s1D ≤ exact (ftail (Unit (Pair x y))) = exact Nil = NilA *)
+        specialize (IH _ _ _ _ s1D HsD).
+        simpl.
+        (* Need to destruct the result of ftailD' (Unit (Pair x y)) s1D *)
+        destruct fD as [ fA | ].
+        * destruct fA as [ t1 | t1 t2 | t1 t2 t3 ].
+          -- invert_clear HfD; invert_clear H.
+          -- invert_clear HfD; invert_clear H.
+            (* Goal: Thunk (MoreA (Thunk (OneA Undefined)) 
+                                    (add_pair_to_head_demand (Unit (Pair x y)) (Tick.val (ftailD' (Unit (Pair x y)) s1D)) t1 t2)
+                                    rD) ≤ exact (More (One a) (Unit (Pair x y)) r) *)
+            repeat constructor.
+            ++ peel_and_close.
+            ++ assumption.
+          -- invert_clear HfD; invert_clear H.
+        * (* fD = Undefined *)
+          repeat constructor.
+          ++ peel_and_close.
+          ++ assumption.
+
+    - (* m = More fd_m m_spine r_d_m. head = first slot of fd_m = Pair x y *)
+      (* fd_m has shape One/Two/Three with Pair x y in first slot *)
+      destruct fd_m as [t_m | t_m t_m' | t_m t_m' t_m''];
+        simpl in Hhead; inversion Hhead; subst t_m; clear Hhead;
+        simpl.
+      + (* fd_m = One (Pair x y) *)
+        invert_clear HmD_out as [ | s1D s2D HsD ].
+        * (* Undefined *)
+          destruct fD as [ fA | ].
+          -- destruct fA as [ t1 | t1 t2 | t1 t2 t3 ];
+              try (invert_clear HfD; invert_clear H; fail).
+            (* TwoA t1 t2 *)
+            invert_clear HfD. invert_clear H.
+            peel_and_close.
+          -- peel_and_close.
+        * (* Thunk s1D *)
+          specialize (IH _ _ _ _ s1D HsD).
+          destruct fD as [ fA | ].
+          -- destruct fA as [ t1 | t1 t2 | t1 t2 t3 ];
+              try (invert_clear HfD; invert_clear H; fail).
+            invert_clear HfD. invert_clear H. 
+            repeat constructor; peel_and_close.
+            apply (@add_pair_to_head_demand_approx A B _ _ _   (More (One (Pair x y)) m_spine r_d_m) _ t1 t2 x y); peel_and_close.
+          -- repeat constructor; peel_and_close.
+            apply (@add_pair_to_head_demand_approx A B _ _ _   (More (One (Pair x y)) m_spine r_d_m) _ Undefined Undefined x y); peel_and_close.
+
+      + (* fd_m = Two (Pair x y) t_m' *)
+        invert_clear HmD_out as [ | s1D s2D HsD ].
+        * destruct fD as [ fA | ].
+          -- destruct fA as [ t1 | t1 t2 | t1 t2 t3 ];
+              try (invert_clear HfD; invert_clear H; fail).
+            invert_clear HfD. invert_clear H.
+            repeat constructor; peel_and_close.
+          -- repeat constructor. peel_and_close.
+        * specialize (IH _ _ _ _ s1D HsD).
+          destruct fD as [ fA | ].
+          -- destruct fA as [ t1 | t1 t2 | t1 t2 t3 ];
+              try (invert_clear HfD; invert_clear H; fail).
+            invert_clear HfD. invert_clear H.
+            repeat constructor; peel_and_close.
+            ++ invert_clear H2; peel_and_close.
+               invert_clear H2; peel_and_close.
+            ++ invert_clear H2; peel_and_close.
+               invert_clear H2; peel_and_close.
+          -- repeat constructor.
+            ++ peel_and_close.
+               invert_clear H; peel_and_close.
+               invert_clear H; peel_and_close.
+               invert_clear H; peel_and_close.
+               invert_clear H; peel_and_close.
+            ++ assumption.
+
+      + (* fd_m = Three (Pair x y) t_m' t_m'' *)
+        invert_clear HmD_out as [ | s1D s2D HsD ].
+        * destruct fD as [ fA | ].
+          -- destruct fA as [ t1 | t1 t2 | t1 t2 t3 ];
+              try (invert_clear HfD; invert_clear H; fail).
+            invert_clear HfD. invert_clear H.
+            repeat constructor.
+            ++ assumption.
+            ++ assumption.
+            ++ assumption.
+          -- repeat constructor.
+            ++ assumption.
+        * specialize (IH _ _ _ _ s1D HsD).
+          destruct fD as [ fA | ].
+          -- destruct fA as [ t1 | t1 t2 | t1 t2 t3 ];
+              try (invert_clear HfD; invert_clear H; fail).
+            invert_clear HfD. invert_clear H.
+            repeat constructor; peel_and_close.
+            ++ 
+              apply (@add_pair_to_head_demand_approx A B _ _ _   (More (Three (Pair x y) t_m' t_m'') m_spine r_d_m) _ t1 t2 x y); peel_and_close.
+            ++ 
+              apply (@add_pair_to_head_demand_approx A B _ _ _   (More (Three (Pair x y) t_m' t_m'') m_spine r_d_m) _ t1 t2 x y); peel_and_close.
+          -- repeat constructor.
+            ++ 
+              apply (@add_pair_to_head_demand_approx A B _ _ _   (More (Three (Pair x y) t_m' t_m'') m_spine r_d_m) _ Undefined Undefined x y); peel_and_close.
+              (* eapply add_pair_to_head_demand_approx;
+                  [ reflexivity | constructor | constructor | ].
+                exact IH. *)
+            ++ assumption.
+  }
+
+  (* === Case 9: More (One a) m r, head m = Some (Triple x y z), non-recursive === *)
+  {
+    rename H into Hhead.
+    refine (match outD with
+            | MoreA fD mD_out rD => _
+            | _ => _
+            end); intro Happrox;
+      try solve [ invert_clear Happrox ].
+    invert_clear Happrox as [ | | ? ? ? ? ? ? HfD HmD_out HrD ].
+
+    (* Destruct m: Nil discharged via Hhead. *)
+    destruct m as [| t_m | fd_m m_spine r_d_m]; [ discriminate Hhead | | ].
+
+    - (* m = Unit t_m. From Hhead: t_m = Triple x y z *)
+      simpl in Hhead. inversion Hhead. subst t_m. clear Hhead.
+      simpl.
+      destruct fD as [ fA | ].
+      + destruct fA as [ t1 | t1 t2 | t1 t2 t3 ].
+        * (* OneA t1, t1 = xD *)
+          invert_clear HfD. invert_clear H.
+          repeat constructor; peel_and_close.
+          invert_clear H1; peel_and_close.
+          invert_clear H1; peel_and_close.
+        * invert_clear HfD; invert_clear H.   (* TwoA ≤ OneA impossible *)
+        * invert_clear HfD; invert_clear H.   (* ThreeA ≤ OneA impossible *)
+      + (* fD = Undefined, xD = Undefined *)
+        repeat constructor; peel_and_close. 
+        invert_clear H; peel_and_close.
+        invert_clear H; peel_and_close.
+
+    - (* m = More fd_m m_spine r_d_m. fd_m has Triple x y z in first slot. *)
+      destruct fd_m as [t_m | t_m t_m' | t_m t_m' t_m''];
+        simpl in Hhead; inversion Hhead; subst t_m; clear Hhead;
+        simpl.
+      + (* fd_m = One (Triple x y z) *)
+        destruct fD as [ fA | ].
+        * destruct fA as [ t1 | t1 t2 | t1 t2 t3 ];
+            try (invert_clear HfD; invert_clear H; fail).
+          invert_clear HfD. invert_clear H.
+          repeat constructor; peel_and_close.
+          {
+            invert_clear H1; peel_and_close.
+            invert_clear H1; peel_and_close.
+            invert_clear H1; peel_and_close.
+            invert_clear H1; peel_and_close.
+          }
+          {
+            invert_clear H1; peel_and_close.
+            invert_clear H1; peel_and_close.
+            invert_clear H1; peel_and_close.
+            invert_clear H1; peel_and_close.            
+          }
+        * repeat constructor; peel_and_close.
+          {
+            invert_clear H; peel_and_close.
+            invert_clear H; peel_and_close.
+            invert_clear H; peel_and_close.
+            invert_clear H; peel_and_close.
+          }
+          {
+            invert_clear H; peel_and_close.
+            invert_clear H; peel_and_close.
+            invert_clear H; peel_and_close.
+            invert_clear H; peel_and_close.
+          }
+
+      + (* fd_m = Two (Triple x y z) t_m' *)
+        destruct fD as [ fA | ].
+        * destruct fA as [ t1 | t1 t2 | t1 t2 t3 ];
+            try (invert_clear HfD; invert_clear H; fail).
+          invert_clear HfD. invert_clear H.
+          repeat constructor; peel_and_close.
+          {
+              invert_clear H1; peel_and_close.
+              invert_clear H1; peel_and_close.
+              invert_clear H1; peel_and_close.
+              invert_clear H1; peel_and_close.
+          }
+          {
+              invert_clear H1; peel_and_close.
+              invert_clear H1; peel_and_close.
+              invert_clear H1; peel_and_close.
+              invert_clear H1; peel_and_close.
+          }
+
+        * repeat constructor; peel_and_close.
+          {
+              invert_clear H; peel_and_close.
+              invert_clear H; peel_and_close.
+              invert_clear H; peel_and_close.
+              invert_clear H; peel_and_close.
+          }
+          {
+              invert_clear H; peel_and_close.
+              invert_clear H; peel_and_close.
+              invert_clear H; peel_and_close.
+              invert_clear H; peel_and_close.
+          }
+
+      + (* fd_m = Three (Triple x y z) t_m' t_m'' *)
+        destruct fD as [ fA | ].
+        * destruct fA as [ t1 | t1 t2 | t1 t2 t3 ];
+            try (invert_clear HfD; invert_clear H; fail).
+          invert_clear HfD. invert_clear H.
+          repeat constructor; peel_and_close.
+          {
+              invert_clear H1; peel_and_close.
+              invert_clear H1; peel_and_close.
+              invert_clear H1; peel_and_close.
+              invert_clear H1; peel_and_close.
+          }
+          {
+              invert_clear H1; peel_and_close.
+              invert_clear H1; peel_and_close.
+              invert_clear H1; peel_and_close.
+              invert_clear H1; peel_and_close.
+          }
+
+        * repeat constructor; peel_and_close.
+          {
+              invert_clear H; peel_and_close.
+              invert_clear H; peel_and_close.
+              invert_clear H; peel_and_close.
+              invert_clear H; peel_and_close.
+          }
+          {
+              invert_clear H; peel_and_close.
+              invert_clear H; peel_and_close.
+              invert_clear H; peel_and_close.
+              invert_clear H; peel_and_close.
+          }
+  }
+Qed.
 
 (* Corollary at B := A. *)
 Lemma ftailD_approx (A : Type) `{LDA : LessDefined A, !Reflexive LDA}
