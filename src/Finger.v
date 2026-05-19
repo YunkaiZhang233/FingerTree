@@ -2338,70 +2338,18 @@ Qed.
 (* ================================================================= *)
 
 
-(** [add_pair_to_head_demand]: augments a spine demand with a [Pair]-head
-    element.  Used in the Pair-head recursive case of [ftailD'].
-
-    When the recursive demand is [Thunk s], reuse [add_pair_to_head_demand_seq]
-    on the inner SeqA value.  When the recursive demand is [Undefined], the
-    recursion didn't demand the spine; we still need a demand reflecting that
-    we forced [m]'s top and peeked at its head — so we branch on [m]'s outer
-    shape to produce a minimum demand matching [m]'s constructor and digit. *)
-
-Definition add_pair_to_head_digit {B : Type}
-    (xD yD : T B) (d : DigitA (TupleA B)) : DigitA (TupleA B) :=
-  match d with
-  | OneA _ => OneA (Thunk (PairA xD yD))
-  | TwoA _ t' => TwoA (Thunk (PairA xD yD)) t'
-  | ThreeA _ t' t'' => ThreeA (Thunk (PairA xD yD)) t' t''
-  end.
-
-Definition add_pair_to_head_demand_seq {B : Type}
-    (xD yD : T B) (s : SeqA (TupleA B)) : SeqA (TupleA B) :=
-  match s with
-  | NilA => NilA
-  | UnitA _ => UnitA (Thunk (PairA xD yD))
-  | MoreA fD mD rD =>
-      let fD' := match fD with
-                 | Thunk d => Thunk (add_pair_to_head_digit xD yD d)
-                 | Undefined => Thunk (OneA (Thunk (PairA xD yD)))
-                 end in
-      MoreA fD' mD rD
-  end.
-
-Definition add_pair_to_head_demand {A B : Type} `{Exact A B}
-    (m : Seq (Tuple A))
-    (mD : T (SeqA (TupleA B))) (xD yD : T B) : T (SeqA (TupleA B)) :=
-  match mD with
-  | Thunk s => Thunk (add_pair_to_head_demand_seq xD yD s)
-  | Undefined =>
-      match m with
-      | Nil => Undefined  (* unreachable: head m = Some (Pair _) *)
-      | Unit _ => Thunk (UnitA (Thunk (PairA xD yD)))
-      | More (One _) _ _ =>
-          Thunk (MoreA (Thunk (OneA (Thunk (PairA xD yD))))
-                       Undefined Undefined)
-      | More (Two _ _) _ _ =>
-          Thunk (MoreA (Thunk (TwoA (Thunk (PairA xD yD)) Undefined))
-                       Undefined Undefined)
-      | More (Three _ _ _) _ _ =>
-          Thunk (MoreA (Thunk (ThreeA (Thunk (PairA xD yD)) Undefined Undefined))
-                       Undefined Undefined)
-      end
-  end.
-
-
-
-(** [inverse_chop_demand]: rewrites a spine demand to undo [map1 chop_triple].
-    Used in the Triple-head non-recursive case of [ftailD']. *)
-
+(** [inverse_chop_tuple]: replace a [PairA yD zD] with [TripleA xD yD zD],
+    or build a partial [TripleA xD Undefined Undefined] for the Undefined case.
+    Used at the head element. *)
 Definition inverse_chop_tuple {B : Type}
     (xD : T B) (t : T (TupleA B)) : T (TupleA B) :=
   match t with
   | Thunk (PairA yD zD) => Thunk (TripleA xD yD zD)
-  | Thunk (TripleA _ _ _) => t   (* shouldn't fire *)
+  | Thunk (TripleA _ _ _) => t   (* shouldn't fire if outD is valid *)
   | Undefined => Thunk (TripleA xD Undefined Undefined)
   end.
 
+(** [inverse_chop_digit]: rewrite head element of a digit. *)
 Definition inverse_chop_digit {B : Type}
     (xD : T B) (d : DigitA (TupleA B)) : DigitA (TupleA B) :=
   match d with
@@ -2410,36 +2358,104 @@ Definition inverse_chop_digit {B : Type}
   | ThreeA t t' t'' => ThreeA (inverse_chop_tuple xD t) t' t''
   end.
 
-Definition inverse_chop_demand_seq {B : Type}
-    (xD : T B) (s : SeqA (TupleA B)) : SeqA (TupleA B) :=
-  match s with
-  | NilA => NilA
-  | UnitA t => UnitA (inverse_chop_tuple xD t)
-  | MoreA fD mD rD =>
-      let fD' := match fD with
-                 | Thunk d => Thunk (inverse_chop_digit xD d)
-                 | Undefined => Thunk (OneA (Thunk (TripleA xD Undefined Undefined)))
-                 end in
-      MoreA fD' mD rD
+(** [undef_inverse_chop_digit]: build a minimal demand-digit when fD = Undefined.
+    The constructor must match [m]'s actual front digit to satisfy the approximation
+    invariant; the head slot exposes [xD] (which we peeked at). *)
+Definition undef_inverse_chop_digit {A B : Type} `{Exact A B}
+    (m_d : Digit (Tuple A)) (xD : T B) : DigitA (TupleA B) :=
+  match m_d with
+  | One _ => OneA (Thunk (TripleA xD Undefined Undefined))
+  | Two _ _ => TwoA (Thunk (TripleA xD Undefined Undefined)) Undefined
+  | Three _ _ _ => ThreeA (Thunk (TripleA xD Undefined Undefined)) Undefined Undefined
   end.
 
+(** [inverse_chop_demand]: the full helper for Case 9 of [ftailD'].
+
+    Rewrites a demand on [map1 chop_triple m] back to a demand on [m]
+    by transforming the head [Pair] to a [Triple] with [xD] as the first
+    element.
+
+    The Undefined-mD case branches on [m]'s outer shape (Unit / digit
+    constructor of front) to produce a structurally compatible demand.
+    The Thunk-mD case with Undefined-fD branches on [m]'s front digit
+    constructor for the same reason. *)
 Definition inverse_chop_demand {A B : Type} `{Exact A B}
     (m : Seq (Tuple A))
     (mD : T (SeqA (TupleA B))) (xD : T B) : T (SeqA (TupleA B)) :=
   match mD with
-  | Thunk s => Thunk (inverse_chop_demand_seq xD s)
+  | Thunk NilA => Thunk NilA
+  | Thunk (UnitA t) => Thunk (UnitA (inverse_chop_tuple xD t))
+  | Thunk (MoreA fD mD_inner rD) =>
+      let fD' :=
+        match fD with
+        | Thunk d => Thunk (inverse_chop_digit xD d)
+        | Undefined =>
+            match m with
+            | More m_d _ _ => Thunk (undef_inverse_chop_digit m_d xD)
+            | _ => Thunk (OneA (Thunk (TripleA xD Undefined Undefined)))  (* unreachable *)
+            end
+        end in
+      Thunk (MoreA fD' mD_inner rD)
   | Undefined =>
       match m with
       | Nil => Undefined  (* unreachable: head m = Some (Triple _) *)
       | Unit _ => Thunk (UnitA (Thunk (TripleA xD Undefined Undefined)))
-      | More (One _) _ _ =>
-          Thunk (MoreA (Thunk (OneA (Thunk (TripleA xD Undefined Undefined))))
+      | More m_d _ _ =>
+          Thunk (MoreA (Thunk (undef_inverse_chop_digit m_d xD))
                        Undefined Undefined)
-      | More (Two _ _) _ _ =>
-          Thunk (MoreA (Thunk (TwoA (Thunk (TripleA xD Undefined Undefined)) Undefined))
-                       Undefined Undefined)
-      | More (Three _ _ _) _ _ =>
-          Thunk (MoreA (Thunk (ThreeA (Thunk (TripleA xD Undefined Undefined)) Undefined Undefined))
+      end
+  end.
+
+
+(** [add_pair_to_head_digit]: replace head element of a digit with [PairA xD yD]. *)
+Definition add_pair_to_head_digit {B : Type}
+    (xD yD : T B) (d : DigitA (TupleA B)) : DigitA (TupleA B) :=
+  match d with
+  | OneA _ => OneA (Thunk (PairA xD yD))
+  | TwoA _ t' => TwoA (Thunk (PairA xD yD)) t'
+  | ThreeA _ t' t'' => ThreeA (Thunk (PairA xD yD)) t' t''
+  end.
+
+(** [undef_add_pair_to_head_digit]: build a minimal demand-digit when fD = Undefined.
+    Constructor matches [m]'s front digit; head slot exposes [PairA xD yD]. *)
+Definition undef_add_pair_to_head_digit {A B : Type} `{Exact A B}
+    (m_d : Digit (Tuple A)) (xD yD : T B) : DigitA (TupleA B) :=
+  match m_d with
+  | One _ => OneA (Thunk (PairA xD yD))
+  | Two _ _ => TwoA (Thunk (PairA xD yD)) Undefined
+  | Three _ _ _ => ThreeA (Thunk (PairA xD yD)) Undefined Undefined
+  end.
+
+(** [add_pair_to_head_demand]: the full helper for Case 8 of [ftailD'].
+
+    Augments a recursive demand on [m] (returned by [ftailD' m _]) with a
+    [Pair x y] head element, since the operation inspected [head m] to
+    determine the case.
+
+    Same shape-discipline as [inverse_chop_demand] for the Undefined cases. *)
+Definition add_pair_to_head_demand {A B : Type} `{Exact A B}
+    (m : Seq (Tuple A))
+    (mD : T (SeqA (TupleA B))) (xD yD : T B) : T (SeqA (TupleA B)) :=
+  match mD with
+  | Thunk NilA => Thunk NilA
+  | Thunk (UnitA _) => Thunk (UnitA (Thunk (PairA xD yD)))
+  | Thunk (MoreA fD mD_inner rD) =>
+      let fD' :=
+        match fD with
+        | Thunk d => Thunk (add_pair_to_head_digit xD yD d)
+        | Undefined =>
+            match m with
+            | More m_d _ _ => Thunk (undef_add_pair_to_head_digit m_d xD yD)
+            | _ => Thunk (OneA (Thunk (PairA xD yD)))  (* unreachable *)
+            end
+        end in
+      Thunk (MoreA fD' mD_inner rD)
+  | Undefined =>
+      match m with
+      | Nil => Undefined  (* unreachable: head m = Some (Pair _) *)
+      | Unit _ => Thunk (UnitA (Thunk (PairA xD yD)))
+      | More m_d _ _ =>
+          Thunk (MoreA (Thunk (undef_add_pair_to_head_digit m_d xD yD))
                        Undefined Undefined)
       end
   end.
@@ -2584,70 +2600,302 @@ Definition ftailD (A : Type) : Seq A -> SeqA A -> Tick (T (SeqA A)) :=
 (* ----------------------------------------------------------------- *)
 
 
-(** [inverse_chop_demand] preserves potential.  The transformation only
-    touches the head element of the spine (replacing [PairA yD zD] with
-    [TripleA xD yD zD]), which doesn't affect the [Debitable] computation
-    since potential depends only on digit constructors and outer [T] shape.
-    The [Undefined → Thunk (UnitA ...)] case strictly DECREASES potential
-    (from 1 to 0 under the safe convention), giving [≤] rather than [=]. *)
-Lemma debt_inverse_chop_demand_seq_le (B : Type) `{LessDefined B}
-    (s_out : SeqA (TupleA B)) (xD : T B) :
-  @Debitable_SeqA (TupleA B) (inverse_chop_demand_seq xD s_out)
-    <= @Debitable_SeqA (TupleA B) s_out.
-Proof.
-  destruct s_out as [| t | fD rD].
-  + (* s = NilA *) simpl. lia.
-  + (* s = UnitA t *) simpl. lia.
-  + (* s = MoreA fD m rD *) 
-    simpl.
-    (* Both sides have safe_T fD' / safe_T fD + Debitable_T m + safe_T rD *)
-    destruct fD as [d | ].
-    * (* fD = Thunk d *)
-      simpl.
-      destruct d as [t1 | t1 t2 | t1 t2 t3]; simpl; lia. 
-    * (* fD = Undefined *)
-      simpl. lia.
-Qed.
-
-
-(** [add_pair_to_head_demand] is potential-non-increasing.  Same argument as
-    above: head element changes don't affect [Debitable]; the only
-    potential change is [Undefined → Thunk (UnitA ...)] which decreases. *)
-Lemma debt_add_pair_to_head_demand_seq_le (B : Type) `{LessDefined B}
-    (s_out : SeqA (TupleA B)) (xD yD : T B) :
-  @Debitable_SeqA (TupleA B) (add_pair_to_head_demand_seq xD yD s_out)
-    <= @Debitable_SeqA (TupleA B) s_out.
-Proof.
-  destruct s_out as [| t | fD m rD].
-  + (* s = NilA *) simpl. lia.
-  + (* s = UnitA t *) simpl. lia.
-  + (* s = MoreA fD m rD *)
-    simpl.
-    destruct fD as [d | ].
-    * (* fD = Thunk d: inverse_chop_digit preserves digit constructor *)
-      destruct d as [t1 | t1 t2 | t1 t2 t3]; simpl; lia.
-    * (* fD = Undefined: replaced with Thunk (OneA _) *)
-      simpl. lia.
-Qed.
-
-
-(** [inverse_chop_demand] preserves approximation.  Given a demand on
-    [map1 chop_triple m] (i.e., where head Triples have been replaced by Pairs),
-    if [xD ≤ exact x] where [x] is the dropped first element of the head Triple,
-    then [inverse_chop_demand mD xD] is a valid approximation of [m]. *)
 Lemma inverse_chop_demand_approx (A B : Type) `{LDB : LessDefined B, !Reflexive LDB, Exact A B}
     (m : Seq (Tuple A)) (mD : T (SeqA (TupleA B))) (xD : T B) (x y z : A) :
   head m = Some (Triple x y z) ->
   xD `is_approx` x ->
   mD `is_approx` map1 chop_triple m ->
-  inverse_chop_demand mD xD `is_approx` m.
+  inverse_chop_demand m mD xD `is_approx` m.
 Proof.
-  (* By case-analysis on [m].  Since head m = Some (Triple x y z), 
-     m has shape Unit (Triple ...) or More ((digit with Triple at head)) ... .
-     Walk through [map1 chop_triple]'s effect; verify the inverse rewrites
-     correctly to produce a value ≤ exact m. *)
-  admit.
-Admitted.
+  intros Hhead HxD HmD.
+  destruct m as [| t | fd m_spine r_d].
+  - (* Nil *)
+    discriminate Hhead.
+
+  - (* Unit t. From head, t = Triple x y z. *)
+    simpl in Hhead. inversion Hhead. subst t. clear Hhead.
+    destruct mD as [s | ]; simpl.
+    + (* mD = Thunk s *)
+      invert_clear HmD.
+      cbn in H0.
+      (* H0 : s ≤ UnitA (Thunk (PairA (exact y) (exact z))) or similar *)
+      destruct s as [| t_s | fD_s mD_s rD_s].
+      * (* s = NilA — impossible: NilA ≤ UnitA *)
+        invert_clear H0.
+      * (* s = UnitA t_s *)
+        invert_clear H0.
+        (* H : t_s ≤ Thunk (PairA (exact y) (exact z)) *)
+        destruct t_s as [tup_s | ]; simpl.
+        -- (* t_s = Thunk tup_s *)
+           invert_clear H0.
+           (* H0 : tup_s ≤ PairA (exact y) (exact z) *)
+           cbn in H0.
+           invert_clear H0.
+           (* tup_s = PairA yD zD with yD ≤ exact y, zD ≤ exact z *)
+           repeat constructor; assumption.
+        -- (* t_s = Undefined *)
+           repeat constructor; try assumption.
+      * (* s = MoreA — impossible *)
+        invert_clear H0.
+    + (* mD = Undefined *)
+      repeat constructor; try assumption.
+
+  - (* More fd m_spine r_d *)
+    destruct fd as [t | t t' | t t' t''];
+      simpl in Hhead; inversion Hhead; subst t; clear Hhead.
+    + (* fd = One (Triple x y z) *)
+      destruct mD as [s | ]; simpl.
+      * (* Thunk s *)
+        invert_clear HmD.
+        cbn in H0.
+        destruct s as [| | fD_s mD_s rD_s].
+        -- invert_clear H0.   (* NilA ≤ MoreA — impossible *)
+        -- invert_clear H0.   (* UnitA ≤ MoreA — impossible *)
+        -- invert_clear H0.
+           (* HfD : fD_s ≤ Thunk (OneA (Thunk (PairA ...))) 
+              HmD_s : mD_s ≤ Thunk (exact m_spine) 
+              HrD_s : rD_s ≤ Thunk (exact r_d) *)
+           destruct fD_s as [d_s | ].
+           ++ (* fD_s = Thunk d_s *)
+              invert_clear H1.  (* on fD_s ≤ Thunk (OneA ...) *)
+              cbn in H2.
+              destruct d_s as [t_d | | ].
+              ** (* OneA t_d *)
+                 invert_clear H2.
+                 (* t_d ≤ Thunk (PairA ...) *)
+                 destruct t_d as [tup_d | ]; simpl.
+                 --- invert_clear H0.
+                     cbn in H0.
+                     invert_clear H0.
+                     repeat match goal with
+                       | H' : ?x `less_defined` ?y |- _ =>
+                           (head_is_constructor x + head_is_constructor y); invert_clear H'
+                       end; repeat constructor; auto.
+                      invert_clear H0.
+                      repeat constructor; assumption.
+                 --- repeat constructor; try assumption.
+                 --- cbn.
+                      repeat match goal with
+                       | H' : ?x `less_defined` ?y |- _ =>
+                           (head_is_constructor x + head_is_constructor y); invert_clear H'
+                       end; repeat constructor; auto.
+                       unfold inverse_chop_tuple.
+                       invert_clear H0.
+                       +++ repeat constructor; assumption.
+                       +++ invert_clear H0. repeat constructor; assumption.
+              ** (* TwoA — impossible *)
+                 invert_clear H2;
+                 repeat match goal with
+                       | H' : ?x `less_defined` ?y |- _ =>
+                           (head_is_constructor x + head_is_constructor y); invert_clear H'
+                       end; repeat constructor; auto.
+              ** (* ThreeA — impossible *)
+                 invert_clear H2;
+                 repeat match goal with
+                       | H' : ?x `less_defined` ?y |- _ =>
+                           (head_is_constructor x + head_is_constructor y); invert_clear H'
+                       end; repeat constructor; auto.
+              ** invert_clear H2;
+                  repeat match goal with
+                       | H' : ?x `less_defined` ?y |- _ =>
+                           (head_is_constructor x + head_is_constructor y); invert_clear H'
+                       end; repeat constructor; auto.
+                  all: invert_clear H0;
+                  repeat match goal with
+                       | H' : ?x `less_defined` ?y |- _ =>
+                           (head_is_constructor x + head_is_constructor y); invert_clear H'
+                       end; repeat constructor; auto.
+                   all: invert_clear H0;
+                   repeat match goal with
+                       | H' : ?x `less_defined` ?y |- _ =>
+                           (head_is_constructor x + head_is_constructor y); invert_clear H'
+                       end; repeat constructor; auto.
+                    all: invert_clear H0;
+                    repeat match goal with
+                       | H' : ?x `less_defined` ?y |- _ =>
+                           (head_is_constructor x + head_is_constructor y); invert_clear H'
+                       end; repeat constructor; auto.
+                    
+           ++ (* fD_s = Undefined *)
+              repeat constructor; try assumption.
+      * (* Undefined *)
+        repeat constructor; try assumption.
+
+    + (* fd = Two (Triple x y z) t' *)
+      destruct mD as [s | ]; simpl.
+      * (* Thunk s *)
+        invert_clear HmD.
+        cbn in H0.
+        destruct s as [| | fD_s mD_s rD_s].
+        -- invert_clear H0.
+        -- invert_clear H0.
+        -- invert_clear H0.
+           destruct fD_s as [d_s | ].
+           ++ invert_clear H1.
+              cbn in H2.
+              destruct d_s as [| t_d t2_d | ].
+              ** invert_clear H2;
+                  repeat match goal with
+                    | H' : ?x `less_defined` ?y |- _ =>
+                        (head_is_constructor x + head_is_constructor y); invert_clear H'
+                    end; repeat constructor; auto.
+              ** (* TwoA t_d t2_d *)
+                 invert_clear H2;
+                 destruct t_d as [tup_d | ]; simpl.
+                 --- invert_clear H0; 
+                    repeat match goal with
+                       | H' : ?x `less_defined` ?y |- _ =>
+                           (head_is_constructor x + head_is_constructor y); invert_clear H'
+                       end; repeat constructor; auto.
+                       invert_clear H0; 
+                       repeat match goal with
+                       | H' : ?x `less_defined` ?y |- _ =>
+                           (head_is_constructor x + head_is_constructor y); invert_clear H'
+                       end; repeat constructor; auto.
+                 --- invert_clear H0;
+                    repeat match goal with
+                       | H' : ?x `less_defined` ?y |- _ =>
+                           (head_is_constructor x + head_is_constructor y); invert_clear H'
+                       end; repeat constructor; auto.
+                 --- invert_clear H1;
+                    repeat match goal with
+                          | H' : ?x `less_defined` ?y |- _ =>
+                              (head_is_constructor x + head_is_constructor y); invert_clear H'
+                          end; repeat constructor; auto.
+                      all: invert_clear H0;
+                      repeat match goal with
+                            | H' : ?x `less_defined` ?y |- _ =>
+                                (head_is_constructor x + head_is_constructor y); invert_clear H'
+                            end; repeat constructor; auto.
+                      {
+                        rewrite <- H3.
+                        repeat constructor; auto.
+                      }
+                      {
+                        rewrite <- H4.
+                        repeat constructor; auto.
+                      }
+                      {
+                        rewrite <- H5.
+                        repeat constructor; auto.
+                      }
+
+                 --- repeat match goal with
+                    | H' : ?x `less_defined` ?y |- _ =>
+                        (head_is_constructor x + head_is_constructor y); invert_clear H'
+                    end; repeat constructor; auto.
+              ** invert_clear H2; 
+                  repeat match goal with
+                    | H' : ?x `less_defined` ?y |- _ =>
+                        (head_is_constructor x + head_is_constructor y); invert_clear H'
+                    end; repeat constructor; auto.
+              ** invert_clear H0;
+                repeat match goal with
+                       | H' : ?x `less_defined` ?y |- _ =>
+                           (head_is_constructor x + head_is_constructor y); invert_clear H'
+                       end; repeat constructor; auto.
+                  invert_clear H0;
+                  repeat match goal with
+                       | H' : ?x `less_defined` ?y |- _ =>
+                           (head_is_constructor x + head_is_constructor y); invert_clear H'
+                       end; repeat constructor; auto.
+                  invert_clear H0;
+                  repeat match goal with
+                       | H' : ?x `less_defined` ?y |- _ =>
+                           (head_is_constructor x + head_is_constructor y); invert_clear H'
+                       end; repeat constructor; auto.
+                  destruct x2.
+                  {
+                    invert_clear H0.
+                    repeat match goal with
+                       | H' : ?x `less_defined` ?y |- _ =>
+                           (head_is_constructor x + head_is_constructor y); invert_clear H'
+                       end; repeat constructor; auto.
+                  }
+                  {
+                    cbn in H0.
+                    invert_clear H0.
+                  }
+
+           ++ repeat constructor; try assumption.
+      * (* Undefined *)
+        repeat constructor; try assumption.
+
+    + (* fd = Three (Triple x y z) t' t'' *)
+      destruct mD as [s | ]; simpl.
+      * (* Thunk s *)
+        invert_clear HmD.
+        cbn in H0.
+        destruct s as [| | fD_s mD_s rD_s].
+        -- invert_clear H0.
+        -- invert_clear H0.
+        -- invert_clear H0.
+           destruct fD_s as [d_s | ].
+           ++ invert_clear H1.
+              cbn in H2.
+              destruct d_s as [| | t_d t2_d t3_d].
+              ** invert_clear H2;
+                  repeat match goal with
+                    | H' : ?x `less_defined` ?y |- _ =>
+                        (head_is_constructor x + head_is_constructor y); invert_clear H'
+                    end; repeat constructor; auto.
+              ** invert_clear H2;
+                  repeat match goal with
+                    | H' : ?x `less_defined` ?y |- _ =>
+                        (head_is_constructor x + head_is_constructor y); invert_clear H'
+                    end; repeat constructor; auto.
+              ** (* ThreeA *)
+                 invert_clear H2.
+                 destruct t_d as [tup_d | ]; simpl;
+                 repeat match goal with
+                       | H' : ?x `less_defined` ?y |- _ =>
+                           (head_is_constructor x + head_is_constructor y); invert_clear H'
+                       end; repeat constructor; auto.
+                 --- invert_clear H0;
+                    repeat match goal with
+                          | H' : ?x `less_defined` ?y |- _ =>
+                              (head_is_constructor x + head_is_constructor y); invert_clear H'
+                          end; repeat constructor; auto.
+                 --- repeat match goal with
+                       | H' : ?x `less_defined` ?y |- _ =>
+                           (head_is_constructor x + head_is_constructor y); invert_clear H'
+                       end; repeat constructor; auto.
+                       cbn in H0.
+                       invert_clear H0.
+                       {
+                        repeat constructor; try assumption.
+                       }
+                       {
+                        cbn in H0.
+                        invert_clear H0.
+                         repeat match goal with
+                               | H' : ?x `less_defined` ?y |- _ =>
+                                   (head_is_constructor x + head_is_constructor y); invert_clear H'
+                               end; repeat constructor; auto.
+                       }
+              ** repeat match goal with
+                               | H' : ?x `less_defined` ?y |- _ =>
+                                   (head_is_constructor x + head_is_constructor y); invert_clear H'
+                               end; repeat constructor; auto.
+                invert_clear H0.
+                repeat match goal with
+                               | H' : ?x `less_defined` ?y |- _ =>
+                                   (head_is_constructor x + head_is_constructor y); invert_clear H'
+                               end; repeat constructor; auto.
+                invert_clear H0.
+                repeat match goal with
+                               | H' : ?x `less_defined` ?y |- _ =>
+                                   (head_is_constructor x + head_is_constructor y); invert_clear H'
+                               end; repeat constructor; auto.
+                invert_clear H0.
+                repeat match goal with
+                               | H' : ?x `less_defined` ?y |- _ =>
+                                   (head_is_constructor x + head_is_constructor y); invert_clear H'
+                               end; repeat constructor; auto.
+           ++ repeat constructor; try assumption.
+      * (* Undefined *)
+        repeat constructor; try assumption.
+Qed.
 
 
 (** [add_pair_to_head_demand] preserves approximation.  Given a demand 
