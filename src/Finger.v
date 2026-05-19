@@ -2461,6 +2461,21 @@ Definition add_pair_to_head_demand {A B : Type} `{Exact A B}
       end
   end.
 
+Lemma debt_inverse_chop_demand_Thunk_le 
+    {A B : Type} `{LessDefined B, Exact A B}
+    (m : Seq (Tuple A)) (sD : SeqA (TupleA B)) (xD : T B) :
+  @Debitable_T _ (@Debitable_SeqA (TupleA B)) (inverse_chop_demand m (Thunk sD) xD)
+    <= @Debitable_T _ (@Debitable_SeqA (TupleA B)) (Thunk sD).
+Proof.
+  destruct sD as [| t | fD_sD mD_inner rD_sD].
+  - simpl. unfold_debt. lia.
+  - simpl. unfold_debt. lia.
+  - simpl.
+    destruct fD_sD as [d | ].
+    + destruct d as [t1 | t1 t2 | t1 t2 t3]; sauto unfold:debt.
+    + destruct m as [| | m_d _ _]; [| | destruct m_d]; sauto unfold:debt.
+Qed.
+
 Lemma debt_add_pair_to_head_demand_Thunk_le 
     {A B : Type} `{LessDefined B, Exact A B}
     (m : Seq (Tuple A)) (sD : SeqA (TupleA B)) (xD yD : T B) :
