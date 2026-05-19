@@ -2437,7 +2437,7 @@ Definition add_pair_to_head_demand {A B : Type} `{Exact A B}
     (m : Seq (Tuple A))
     (mD : T (SeqA (TupleA B))) (xD yD : T B) : T (SeqA (TupleA B)) :=
   match mD with
-  | Thunk NilA => Thunk NilA
+  | Thunk NilA => Thunk (UnitA (Thunk (PairA xD yD)))
   | Thunk (UnitA _) => Thunk (UnitA (Thunk (PairA xD yD)))
   | Thunk (MoreA fD mD_inner rD) =>
       let fD' :=
@@ -2600,6 +2600,13 @@ Definition ftailD (A : Type) : Seq A -> SeqA A -> Tick (T (SeqA A)) :=
 (* ----------------------------------------------------------------- *)
 
 
+Ltac peel_and_close :=
+  repeat match goal with
+  | H' : ?x `less_defined` ?y |- _ =>
+      (head_is_constructor x + head_is_constructor y); invert_clear H'
+  end; repeat constructor; auto.
+
+
 Lemma inverse_chop_demand_approx (A B : Type) `{LDB : LessDefined B, !Reflexive LDB, Exact A B}
     (m : Seq (Tuple A)) (mD : T (SeqA (TupleA B))) (xD : T B) (x y z : A) :
   head m = Some (Triple x y z) ->
@@ -2667,54 +2674,28 @@ Proof.
                  --- invert_clear H0.
                      cbn in H0.
                      invert_clear H0.
-                     repeat match goal with
-                       | H' : ?x `less_defined` ?y |- _ =>
-                           (head_is_constructor x + head_is_constructor y); invert_clear H'
-                       end; repeat constructor; auto.
+                     peel_and_close.
                       invert_clear H0.
                       repeat constructor; assumption.
                  --- repeat constructor; try assumption.
                  --- cbn.
-                      repeat match goal with
-                       | H' : ?x `less_defined` ?y |- _ =>
-                           (head_is_constructor x + head_is_constructor y); invert_clear H'
-                       end; repeat constructor; auto.
+                     peel_and_close.
                        unfold inverse_chop_tuple.
                        invert_clear H0.
                        +++ repeat constructor; assumption.
                        +++ invert_clear H0. repeat constructor; assumption.
               ** (* TwoA — impossible *)
                  invert_clear H2;
-                 repeat match goal with
-                       | H' : ?x `less_defined` ?y |- _ =>
-                           (head_is_constructor x + head_is_constructor y); invert_clear H'
-                       end; repeat constructor; auto.
+                 peel_and_close.
               ** (* ThreeA — impossible *)
                  invert_clear H2;
-                 repeat match goal with
-                       | H' : ?x `less_defined` ?y |- _ =>
-                           (head_is_constructor x + head_is_constructor y); invert_clear H'
-                       end; repeat constructor; auto.
+                 peel_and_close.
+
               ** invert_clear H2;
-                  repeat match goal with
-                       | H' : ?x `less_defined` ?y |- _ =>
-                           (head_is_constructor x + head_is_constructor y); invert_clear H'
-                       end; repeat constructor; auto.
-                  all: invert_clear H0;
-                  repeat match goal with
-                       | H' : ?x `less_defined` ?y |- _ =>
-                           (head_is_constructor x + head_is_constructor y); invert_clear H'
-                       end; repeat constructor; auto.
-                   all: invert_clear H0;
-                   repeat match goal with
-                       | H' : ?x `less_defined` ?y |- _ =>
-                           (head_is_constructor x + head_is_constructor y); invert_clear H'
-                       end; repeat constructor; auto.
-                    all: invert_clear H0;
-                    repeat match goal with
-                       | H' : ?x `less_defined` ?y |- _ =>
-                           (head_is_constructor x + head_is_constructor y); invert_clear H'
-                       end; repeat constructor; auto.
+                 peel_and_close.
+                  all: invert_clear H0; peel_and_close.
+                  all: invert_clear H0; peel_and_close.
+                  all: invert_clear H0; peel_and_close.
                     
            ++ (* fD_s = Undefined *)
               repeat constructor; try assumption.
@@ -2735,38 +2716,20 @@ Proof.
               cbn in H2.
               destruct d_s as [| t_d t2_d | ].
               ** invert_clear H2;
-                  repeat match goal with
-                    | H' : ?x `less_defined` ?y |- _ =>
-                        (head_is_constructor x + head_is_constructor y); invert_clear H'
-                    end; repeat constructor; auto.
+                  peel_and_close.
               ** (* TwoA t_d t2_d *)
                  invert_clear H2;
                  destruct t_d as [tup_d | ]; simpl.
                  --- invert_clear H0; 
-                    repeat match goal with
-                       | H' : ?x `less_defined` ?y |- _ =>
-                           (head_is_constructor x + head_is_constructor y); invert_clear H'
-                       end; repeat constructor; auto.
+                    peel_and_close.
                        invert_clear H0; 
-                       repeat match goal with
-                       | H' : ?x `less_defined` ?y |- _ =>
-                           (head_is_constructor x + head_is_constructor y); invert_clear H'
-                       end; repeat constructor; auto.
+                       peel_and_close.
                  --- invert_clear H0;
-                    repeat match goal with
-                       | H' : ?x `less_defined` ?y |- _ =>
-                           (head_is_constructor x + head_is_constructor y); invert_clear H'
-                       end; repeat constructor; auto.
+                    peel_and_close.
                  --- invert_clear H1;
-                    repeat match goal with
-                          | H' : ?x `less_defined` ?y |- _ =>
-                              (head_is_constructor x + head_is_constructor y); invert_clear H'
-                          end; repeat constructor; auto.
+                    peel_and_close.
                       all: invert_clear H0;
-                      repeat match goal with
-                            | H' : ?x `less_defined` ?y |- _ =>
-                                (head_is_constructor x + head_is_constructor y); invert_clear H'
-                            end; repeat constructor; auto.
+                      peel_and_close.
                       {
                         rewrite <- H3.
                         repeat constructor; auto.
@@ -2780,37 +2743,19 @@ Proof.
                         repeat constructor; auto.
                       }
 
-                 --- repeat match goal with
-                    | H' : ?x `less_defined` ?y |- _ =>
-                        (head_is_constructor x + head_is_constructor y); invert_clear H'
-                    end; repeat constructor; auto.
+                 --- peel_and_close.
               ** invert_clear H2; 
-                  repeat match goal with
-                    | H' : ?x `less_defined` ?y |- _ =>
-                        (head_is_constructor x + head_is_constructor y); invert_clear H'
-                    end; repeat constructor; auto.
+                  peel_and_close.
               ** invert_clear H0;
-                repeat match goal with
-                       | H' : ?x `less_defined` ?y |- _ =>
-                           (head_is_constructor x + head_is_constructor y); invert_clear H'
-                       end; repeat constructor; auto.
+                peel_and_close.
                   invert_clear H0;
-                  repeat match goal with
-                       | H' : ?x `less_defined` ?y |- _ =>
-                           (head_is_constructor x + head_is_constructor y); invert_clear H'
-                       end; repeat constructor; auto.
+                  peel_and_close.
                   invert_clear H0;
-                  repeat match goal with
-                       | H' : ?x `less_defined` ?y |- _ =>
-                           (head_is_constructor x + head_is_constructor y); invert_clear H'
-                       end; repeat constructor; auto.
+                  peel_and_close.
                   destruct x2.
                   {
                     invert_clear H0.
-                    repeat match goal with
-                       | H' : ?x `less_defined` ?y |- _ =>
-                           (head_is_constructor x + head_is_constructor y); invert_clear H'
-                       end; repeat constructor; auto.
+                    peel_and_close.
                   }
                   {
                     cbn in H0.
@@ -2835,31 +2780,16 @@ Proof.
               cbn in H2.
               destruct d_s as [| | t_d t2_d t3_d].
               ** invert_clear H2;
-                  repeat match goal with
-                    | H' : ?x `less_defined` ?y |- _ =>
-                        (head_is_constructor x + head_is_constructor y); invert_clear H'
-                    end; repeat constructor; auto.
+                  peel_and_close.
               ** invert_clear H2;
-                  repeat match goal with
-                    | H' : ?x `less_defined` ?y |- _ =>
-                        (head_is_constructor x + head_is_constructor y); invert_clear H'
-                    end; repeat constructor; auto.
+                  peel_and_close.
               ** (* ThreeA *)
                  invert_clear H2.
                  destruct t_d as [tup_d | ]; simpl;
-                 repeat match goal with
-                       | H' : ?x `less_defined` ?y |- _ =>
-                           (head_is_constructor x + head_is_constructor y); invert_clear H'
-                       end; repeat constructor; auto.
+                 peel_and_close.
                  --- invert_clear H0;
-                    repeat match goal with
-                          | H' : ?x `less_defined` ?y |- _ =>
-                              (head_is_constructor x + head_is_constructor y); invert_clear H'
-                          end; repeat constructor; auto.
-                 --- repeat match goal with
-                       | H' : ?x `less_defined` ?y |- _ =>
-                           (head_is_constructor x + head_is_constructor y); invert_clear H'
-                       end; repeat constructor; auto.
+                    peel_and_close.
+                 --- peel_and_close.
                        cbn in H0.
                        invert_clear H0.
                        {
@@ -2868,34 +2798,20 @@ Proof.
                        {
                         cbn in H0.
                         invert_clear H0.
-                         repeat match goal with
-                               | H' : ?x `less_defined` ?y |- _ =>
-                                   (head_is_constructor x + head_is_constructor y); invert_clear H'
-                               end; repeat constructor; auto.
+                         peel_and_close.
                        }
-              ** repeat match goal with
-                               | H' : ?x `less_defined` ?y |- _ =>
-                                   (head_is_constructor x + head_is_constructor y); invert_clear H'
-                               end; repeat constructor; auto.
+              ** peel_and_close.
                 invert_clear H0.
-                repeat match goal with
-                               | H' : ?x `less_defined` ?y |- _ =>
-                                   (head_is_constructor x + head_is_constructor y); invert_clear H'
-                               end; repeat constructor; auto.
+                peel_and_close.
                 invert_clear H0.
-                repeat match goal with
-                               | H' : ?x `less_defined` ?y |- _ =>
-                                   (head_is_constructor x + head_is_constructor y); invert_clear H'
-                               end; repeat constructor; auto.
+                peel_and_close.
                 invert_clear H0.
-                repeat match goal with
-                               | H' : ?x `less_defined` ?y |- _ =>
-                                   (head_is_constructor x + head_is_constructor y); invert_clear H'
-                               end; repeat constructor; auto.
+                peel_and_close.
            ++ repeat constructor; try assumption.
       * (* Undefined *)
         repeat constructor; try assumption.
 Qed.
+
 
 
 (** [add_pair_to_head_demand] preserves approximation.  Given a demand 
@@ -2907,15 +2823,106 @@ Lemma add_pair_to_head_demand_approx (A B : Type) `{LDB : LessDefined B, !Reflex
   head m = Some (Pair x y) ->
   xD `is_approx` x ->
   yD `is_approx` y ->
-  mD `is_approx` ftail m ->
-  add_pair_to_head_demand mD xD yD `is_approx` m.
+  mD `is_approx` m ->
+  add_pair_to_head_demand m mD xD yD `is_approx` m.
 Proof.
-  (* By case-analysis on [m].  Since head m = Some (Pair x y), m has shape 
-     Unit (Pair x y) or More ((digit with Pair at head)) ... .
-     The ftail of these produces NilA (for Unit) or More(...) with the head 
-     dropped; augmenting reinstates the Pair head. *)
-  admit.
-Admitted.
+  intros Hhead HxD HyD HmD.
+  destruct m as [| t | fd m_spine r_d].
+  - (* Nil *) discriminate Hhead.
+
+  - (* Unit t. t = Pair x y. *)
+    simpl in Hhead. inversion Hhead. subst t. clear Hhead.
+    destruct mD as [s | ]; simpl.
+    + (* Thunk s. HmD : Thunk s ≤ exact (Unit (Pair x y)) *)
+      invert_clear HmD.
+      cbn in H0.
+      (* H0 : s ≤ UnitA (Thunk (PairA (exact x) (exact y))) *)
+      destruct s as [| t_s | fD_s mD_s rD_s].
+      * invert_clear H0.   (* NilA ≤ UnitA impossible *)
+      * (* UnitA t_s — helper produces Thunk (UnitA (Thunk (PairA xD yD))) *)
+        repeat constructor; assumption.
+      * invert_clear H0.   (* MoreA ≤ UnitA impossible *)
+    + (* Undefined *)
+      repeat constructor; assumption.
+
+  - (* More fd m_spine r_d. fd first element = Pair x y. *)
+    destruct fd as [t | t t' | t t' t''];
+      simpl in Hhead; inversion Hhead; subst t; clear Hhead.
+    + (* fd = One (Pair x y) *)
+      destruct mD as [s | ]; simpl.
+      * invert_clear HmD.
+        cbn in H0.
+        destruct s as [| | fD_s mD_s rD_s].
+        -- invert_clear H0.
+        -- invert_clear H0.
+        -- invert_clear H0.
+           (* HfD : fD_s ≤ Thunk (OneA (Thunk (PairA (exact x) (exact y))))
+              HmD_s : mD_s ≤ Thunk (exact m_spine)
+              HrD_s : rD_s ≤ Thunk (exact r_d) *)
+           destruct fD_s as [d_s | ].
+           ++ (* Thunk d_s *)
+              invert_clear H1.
+              cbn in H2.
+              destruct d_s as [t_d | t_d t2_d | t_d t2_d t3_d].
+              ** (* OneA t_d — helper produces OneA (Thunk (PairA xD yD)) *)
+                 repeat constructor; assumption.
+              ** peel_and_close.
+              ** peel_and_close.
+              ** peel_and_close.
+                 invert_clear H0.
+                 peel_and_close.
+                  
+           ++ (* Undefined — helper uses undef_add_pair_to_head_digit on m_d = One _ *)
+              repeat constructor; assumption.
+      * (* Undefined — uses undef_add_pair_to_head_digit on m_d = One _ *)
+        repeat constructor; assumption.
+
+    + (* fd = Two (Pair x y) t' *)
+      destruct mD as [s | ]; simpl.
+      * invert_clear HmD.
+        cbn in H0.
+        destruct s as [| | fD_s mD_s rD_s].
+        -- invert_clear H0.
+        -- invert_clear H0.
+        -- invert_clear H0.
+           destruct fD_s as [d_s | ].
+           ++ invert_clear H1.
+              cbn in H2.
+              destruct d_s as [| t_d t2_d | ].
+              ** invert_clear H2; peel_and_close.
+              ** (* TwoA t_d t2_d — helper: TwoA (Thunk (PairA xD yD)) t2_d *)
+                peel_and_close.
+              ** peel_and_close.
+              ** peel_and_close.
+                 invert_clear H0.
+                 peel_and_close.
+           ++ (* Undefined — helper: TwoA (Thunk (PairA xD yD)) Undefined *)
+              peel_and_close.
+      * peel_and_close.
+
+    + (* fd = Three (Pair x y) t' t'' *)
+      destruct mD as [s | ]; simpl.
+      * invert_clear HmD.
+        cbn in H0.
+        destruct s as [| | fD_s mD_s rD_s].
+        -- invert_clear H0.
+        -- invert_clear H0.
+        -- invert_clear H0.
+           destruct fD_s as [d_s | ].
+           ++ invert_clear H1.
+              cbn in H2.
+              destruct d_s as [| | t_d t2_d t3_d].
+              ** peel_and_close.
+              ** peel_and_close.
+              ** (* ThreeA *)
+                 peel_and_close.
+              ** peel_and_close.
+                 invert_clear H0.
+                 peel_and_close.
+                 
+           ++ peel_and_close.
+      * peel_and_close.
+Qed.
 
 
 (* ----------------------------------------------------------------- *)
@@ -2954,7 +2961,7 @@ Lemma ftailD_approx (A : Type) `{LDA : LessDefined A, !Reflexive LDA}
   Tick.val (ftailD q outD) `is_approx` q.
 Proof.
   intros. eapply ftailD'_approx; eauto.
-Admitted.
+Qed.
 (* Note: change to Qed once ftailD'_approx is closed. *)
 
 
@@ -3002,7 +3009,7 @@ Lemma ftailD_cost (A : Type) `{LessDefined A} (q : Seq A) (outD : SeqA A) :
   debt (Tick.val inM) + Tick.cost inM <= 3 + debt outD.
 Proof.
   intros. apply ftailD'_cost. auto.
-Admitted.
+Qed.
 (* Note: change to Qed once ftailD'_cost is closed. *)
 
 
@@ -3065,7 +3072,7 @@ Lemma ftailD_spec (A : Type) `{LDA : LessDefined A, !Reflexive LDA}
     ftailA qD [[ fun out cost => outD `less_defined` out /\ cost <= dcost ]].
 Proof.
   intros. apply ftailD'_spec; auto.
-Admitted.
+Qed.
 (* Note: change to Qed once ftailD'_spec is closed. *)
 
 (* ================================================================= *)
