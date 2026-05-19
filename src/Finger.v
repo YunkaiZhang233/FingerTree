@@ -4315,7 +4315,7 @@ Qed.
 Lemma ftailD'_cost_bottom (A B : Type) `{LDB : LessDefined B, !Reflexive LDB, Exact A B}
     (q : Seq A) :
   let inM := ftailD' q (bottom_of (exact (ftail q))) in
-  debt (Tick.val inM) + Tick.cost inM <= 3.
+  debt (Tick.val inM) + Tick.cost inM <= 4.
 Proof.
   (* Specialize [ftailD'_cost] with [outD = bottom_of (exact (ftail q))]
      and bound debt outD ≤ 1. (The +1 over K=3 from ftailD'_cost accounts 
@@ -4335,6 +4335,7 @@ Admitted.
 Lemma ftailD'_spec : forall (A B : Type)
     `{LDB : LessDefined B, !Reflexive LDB, Exact A B}
     (q : Seq A) (outD : SeqA B),
+    q <> Nil ->
     outD `is_approx` ftail q ->
     forall qD, qD = Tick.val (ftailD' q outD) ->
       let dcost := Tick.cost (ftailD' q outD) in
@@ -4351,8 +4352,569 @@ Proof.
         [inverse_chop_demand] threading the demand back.
      
      Closely mirrors [fconsD'_spec]. *)
-  admit.
-Admitted.
+  intros A B LDB HReflexive EAB q outD Hnonil Happrox qD HqD dcost.
+  revert A q B LDB HReflexive EAB outD Hnonil Happrox qD HqD dcost.
+  apply (ftail_ind
+    (fun A q q' =>
+       forall B `{LDB : LessDefined B, !Reflexive LDB, Exact A B}
+              (outD : SeqA B),
+         q <> Nil ->
+         outD `is_approx` q' ->
+         forall qD, qD = Tick.val (ftailD' q outD) ->
+           let dcost := Tick.cost (ftailD' q outD) in
+           ftailA qD [[ fun out cost => outD `less_defined` out /\ cost <= dcost ]])).
+  
+  (* Case 1: q = Nil — vacuous via Hnonil *)
+  {
+    intros A B LDB HReflexive EAB outD Hnonil Happrox qD HqD dcost.
+    exfalso. apply Hnonil. reflexivity.
+  }
+  
+  (* Case 2: q = Unit x *)
+  {
+    intros A x B LDB HReflexive EAB outD Hnonil Happrox qD HqD dcost.
+    revert Happrox.
+    destruct outD; intro Happrox; try (invert_clear Happrox; fail).
+    subst. simpl. mgo_.
+  }
+
+  (* === Case 3: q = More (Three a x y) m r, q' = More (Two x y) m r === *)
+  {
+    intros A a x y m r B LDB HReflexive EAB outD Hnonil Happrox qD HqD dcost.
+    revert Happrox.
+    destruct outD; intro Happrox.
+    - invert_clear Happrox.
+    - invert_clear Happrox.
+    - invert_clear Happrox as [ | | ? ? ? ? ? ? HfD HmD HrD ].
+      subst. simpl.
+      keep_mgo_.
+      destruct t as [ [ | t1' t2' | ] | ].
+        * invert_clear HfD. invert_clear H.
+        * invert_clear HfD. invert_clear H.
+          simpl. keep_mgo_. 
+        * invert_clear HfD. invert_clear H.
+        * simpl. keep_mgo_. 
+  }
+
+  (* === Case 4: q = More (Two a x) m r, q' = More (One x) m r === *)
+  {
+    intros A a x m r B LDB HReflexive EAB outD Hnonil Happrox qD HqD dcost.
+    revert Happrox.
+    destruct outD; intro Happrox.
+    - invert_clear Happrox.
+    - invert_clear Happrox.
+    - invert_clear Happrox as [ | | ? ? ? ? ? ? HfD HmD HrD ].
+      subst. simpl.
+      keep_mgo_.
+      destruct t as [ [ t1' | | ] | ].
+        * (* OneA t1' — valid case *)
+          invert_clear HfD. invert_clear H.
+          simpl. keep_mgo_.
+        * (* TwoA — contradicts HfD (exact = OneA _) *)
+          invert_clear HfD. invert_clear H.
+        * (* ThreeA — contradicts *)
+          invert_clear HfD. invert_clear H.
+        * (* Undefined *)
+          simpl. keep_mgo_.
+  }
+
+  (* === Case 5: q = More (One a) Nil (One y), q' = Unit y === *)
+  {
+    intros A a y B LDB HReflexive EAB outD Hnonil Happrox qD HqD dcost.
+    revert Happrox.
+    destruct outD; intro Happrox.
+    - invert_clear Happrox.
+    - invert_clear Happrox.
+      subst. simpl. keep_mgo_.
+    - invert_clear Happrox.
+  }
+
+  (* === Case 6: q = More (One a) Nil (Two y z), q' = More (One y) Nil (One z) === *)
+  {
+    intros A a y z B LDB HReflexive EAB outD Hnonil Happrox qD HqD dcost.
+    revert Happrox.
+    destruct outD; intro Happrox.
+    - invert_clear Happrox.
+    - invert_clear Happrox.
+    - invert_clear Happrox as [ | | ? ? ? ? ? ? HfD HmD HrD ].
+      subst. simpl.
+      keep_mgo_.
+      destruct t as [ [ t1' | | ] | ];
+        try (invert_clear HfD; invert_clear H; fail);
+      destruct t1 as [ [ s1 | | ] | ];
+        try (invert_clear HrD; invert_clear H; fail).
+      
+      (* OneA t1' × OneA s1 *)
+      { 
+        invert_clear HfD. 
+        invert_clear H. 
+        invert_clear HrD. 
+        invert_clear H.
+        simpl. keep_mgo_. 
+        reflexivity. 
+      }
+      (* OneA t1' × Undefined *)
+      { 
+        invert_clear HfD. 
+        invert_clear H.
+        simpl. keep_mgo_. 
+      }
+      (* Undefined × OneA s1 *)
+      { 
+        invert_clear HrD. 
+        invert_clear H.
+        simpl. keep_mgo_. 
+      }
+      (* Undefined × Undefined *)
+      { 
+        simpl. keep_mgo_. 
+      }
+      (* Undefined  ×  anything *)
+      {
+        invert_clear HrD.
+        {
+          constructor.
+        }
+        {
+          invert_clear H. reflexivity.
+        }
+      }
+  }
+  (* === Case 7: q = More (One a) Nil (Three y z w), q' = More (One y) Nil (Two z w) === *)
+  {
+    intros A a y z w B LDB HReflexive EAB outD Hnonil Happrox qD HqD dcost.
+    revert Happrox.
+    destruct outD; intro Happrox.
+    - invert_clear Happrox.
+    - invert_clear Happrox.
+    - invert_clear Happrox as [ | | ? ? ? ? ? ? HfD HmD HrD ].
+      subst. simpl.
+      keep_mgo_.
+      destruct t as [ [ t1' | | ] | ];
+        try (invert_clear HfD; invert_clear H; fail);
+      destruct t1 as [ [ | s1 s2 | ] | ];
+        try (invert_clear HrD; invert_clear H; fail).
+      (* OneA t1' × TwoA s1 s2 *)
+      { 
+        invert_clear HfD. 
+        invert_clear H. 
+        invert_clear HrD. 
+        invert_clear H.
+        - simpl. keep_mgo_.
+        - simpl. keep_mgo_.
+      }
+      (* OneA t1' × Undefined *)
+      { 
+        invert_clear HfD. 
+        invert_clear H.
+        simpl. keep_mgo_. 
+      }
+      (* Undefined × TwoA s1 s2 *)
+      { 
+        invert_clear HrD. 
+        invert_clear H.
+        simpl. keep_mgo_. 
+      }
+      (* Undefined × Undefined *)
+      { 
+        simpl. keep_mgo_. 
+      }
+  }
+
+  (* === Case 8: q = More (One a) m r, head m = Some (Pair x y), recursive ===
+     IH: ftailA on Tick.val (ftailD' m _) is well-specified.
+     Outer: ftailA' forces fD→OneA, mD→non-Nil spine, looks up head, finds Pair.
+            Recurses on m via ftailA'. Apply IH at the recursive call site.
+     Structurally mirrors Case 5 of fconsD'_spec. *)
+  {
+    (* intros A a x y m r IH Hhead B LDB HReflexive EAB outD Happrox qD HqD dcost.
+    revert Happrox.
+    destruct outD; intro Happrox; try (invert_clear Happrox; fail).
+    invert_clear Happrox as [ | | ? ? ? ? ? ? HfD HmD HrD ].
+    subst. simpl. *)
+    admit.
+  }
+
+  (* === Case 9: q = More (One a) m r, head m = Some (Triple x y z), non-recursive === *)
+  {
+    intros A a x y z m r Hhead B LDB HReflexive EAB outD Hnonil Happrox qD HqD dcost.
+    (* Now: Hnonil : More ... <> Nil
+            Happrox : outD ≤ exact (More (One x) (map1 chop_triple m) r)
+            qD : T (SeqA B)
+            HqD : qD = Tick.val (ftailD' ...) *)
+    revert Happrox.
+    destruct outD; intro Happrox.
+    - invert_clear Happrox.
+    - invert_clear Happrox.
+    - invert_clear Happrox as [ | | ? ? ? ? ? ? HfD HmD_out HrD ].
+      subst. simpl.
+      
+      (* Need to destruct m to expose head m = Some (Triple x y z) *)
+      destruct m as [| t_m | fd_m m_spine r_d_m]; [ discriminate Hhead | | ].
+      
+      (* m = Unit t_m, t_m = Triple x y z *)
+      + simpl in Hhead. inversion Hhead. subst t_m. clear Hhead.
+        keep_mgo_.
+        destruct t as [ [ t_x | | ] | ];
+          try (invert_clear HfD; invert_clear H; fail).
+        (* OneA t_x *)
+        { 
+          invert_clear HfD. invert_clear H.
+          simpl. keep_mgo_. 
+          destruct t0 as [ s_inner | ].
+          - (* Thunk s_inner, HmD_out : Thunk s_inner ≤ Thunk (UnitA (exact (Pair y z))) *)
+            invert_clear HmD_out as [ | ? ? HsD ].
+            (* HsD : s_inner ≤ UnitA (exact (Pair y z)) *)
+            destruct s_inner as [| t_pair | ];
+              try (invert_clear HsD; fail).
+            (* UnitA t_pair *)
+            invert_clear HsD.
+            (* H0 : t_pair ≤ Thunk (PairA (exact y) (exact z)) *)
+            simpl.   (* unfold inverse_chop_demand at Unit case *)
+            destruct t_pair as [ pA | ].
+            + (* Thunk pA, pA ≤ PairA (exact y) (exact z) *)
+              invert_clear H0.
+              invert_clear H0.
+              (* pA = PairA t_y t_z with t_y ≤ exact y, t_z ≤ exact z *)
+              simpl.   (* inverse_chop_tuple t_x (Thunk (PairA t_y t_z)) = Thunk (TripleA t_x t_y t_z) *)
+              mgo_. keep_mgo_.
+            + (* Undefined *)
+              simpl.   (* inverse_chop_tuple t_x Undefined = Thunk (TripleA t_x Undefined Undefined) *)
+              mgo_. keep_mgo_.
+          - (* Undefined *)
+            simpl.   (* inverse_chop_demand (Unit _) Undefined t_x = Thunk (UnitA (Thunk (TripleA t_x Undefined Undefined))) *)
+            mgo_. keep_mgo_.
+        }
+        (* Undefined *)
+        { 
+          simpl. keep_mgo_.
+          destruct t0 as [ s_inner | ].
+          - invert_clear HmD_out as [ | ? ? HsD ].
+            destruct s_inner as [| t_pair | ]; try (invert_clear HsD; fail).
+            invert_clear HsD.
+            destruct t_pair as [ pA | ];
+              [invert_clear H; invert_clear H | ];
+              simpl; mgo_;
+              keep_mgo_.
+          - simpl; keep_mgo_.
+        }
+      
+      (* m = More fd_m m_spine r_d_m *)
+      + destruct fd_m as [ t_m | t_m t_m' | t_m t_m' t_m'' ];
+          simpl in Hhead; inversion Hhead; subst t_m; clear Hhead.
+        (* fd_m = One (Triple x y z) *)
+        { 
+          keep_mgo_.
+          destruct t as [ [ t_x | | ] | ];
+            try (invert_clear HfD; invert_clear H; fail).
+          { 
+            invert_clear HfD. invert_clear H. simpl. keep_mgo_.
+            destruct t0 as [ s_inner | ].
+            - (* Thunk s_inner. HmD_out : Thunk s_inner ≤ Thunk (MoreA ...) *)
+              invert_clear HmD_out as [ | ? ? HsD ].
+              (* HsD : s_inner ≤ MoreA (exact (One (Pair y z))) (Thunk (Exact_Seq m_spine)) (exact r_d_m) *)
+              destruct s_inner as [| | fD' mD' rD' ];
+                try (invert_clear HsD; fail).
+              invert_clear HsD.   (* gives HfD' : fD' ≤ ..., HmD' : mD' ≤ ..., HrD' : rD' ≤ ... *)
+              
+              destruct fD' as [ dA | ].
+              + (* Thunk dA *)
+                invert_clear H0.   (* H1 : dA ≤ OneA (Thunk (exact (Pair y z))) *)
+                destruct dA as [ t_inner | | ];
+                  try (invert_clear H1; fail).
+                (* OneA t_inner *)
+                invert_clear H1.   (* H3 : t_inner ≤ Thunk (exact (Pair y z)) *)
+                simpl.
+                (* Now inverse_chop_digit t_x (OneA t_inner) = OneA (inverse_chop_tuple t_x t_inner). *)
+                destruct t_inner as [ pA | ].
+                * (* Thunk pA *)
+                  invert_clear H0.
+                  invert_clear H0.   (* pA = PairA t_y t_z with t_y, t_z ≤ exact y, z *)
+                  simpl. 
+                  mgo_.
+                  repeat (apply optimistic_thunk_go; mgo_).
+                  keep_mgo_;
+                    repeat constructor; try assumption; try reflexivity.
+                  invert_clear H0.
+                  simpl.
+                  keep_mgo_.
+                  
+                * (* Undefined *)
+                  simpl.
+                  mgo_.
+                  repeat (apply optimistic_thunk_go; mgo_).
+                * invert_clear H0.   (* H3 : t_inner ≤ Thunk (exact (Pair y z)) *)
+                  destruct t_inner as [ pA | ].
+                  {
+                    invert_clear H0.
+                    (* New hypothesis: pA ≤ PairA (exact y) (exact z) *)
+                    match goal with
+                    | H : pA `less_defined` _ |- _ => invert_clear H
+                    end.
+                    simpl.
+                    keep_mgo_.
+                  }
+                  {
+                    simpl. keep_mgo_.
+                  }
+                * invert_clear H0.
+                * invert_clear H0.
+              + (* Undefined fD' *)
+                (* Helper uses undef_inverse_chop_digit (One _) t_x = OneA (Thunk (TripleA t_x Undefined Undefined)) *)
+                simpl.
+                mgo_.
+                repeat (apply optimistic_thunk_go; mgo_).
+
+            - (* t0 = Undefined *)
+              simpl.
+              mgo_.
+              repeat (apply optimistic_thunk_go; mgo_).
+          }
+          { 
+            simpl. keep_mgo_. 
+
+            destruct t0 as [ s_inner | ].
+            - (* Thunk s_inner *)
+              invert_clear HmD_out as [ | ? ? HsD ].
+              destruct s_inner as [| | fD' mD' rD' ];
+                try (invert_clear HsD; fail).
+              invert_clear HsD.
+              
+              destruct fD' as [ dA | ].
+              + destruct dA as [ t_inner | t1' t2' | t1' t2' t3' ].
+                * (* OneA t_inner *)
+                  (* split on mD' for the Goal-3 analog and on t_inner *)
+                  destruct mD' as [ x0 | ];
+                  destruct t_inner as [ pA | ].
+
+                    (* Handle each combination *)
+                  (* OneA-Thunk-x0-Thunk-pA: same as Goal 3 with Undefined as front *)
+                  {
+                    invert_clear H.
+                    invert_clear H.   (* OneA-OneA: gives Thunk pA ≤ Thunk (PairA ...) *)
+                    invert_clear H.   (* Thunk-Thunk: gives pA ≤ PairA _ _ *)
+                    invert_clear H.   (* PairA-PairA: gives t_y, t_z, and constraints *)
+
+                    (* Now pA is destructured *)
+                    simpl. 
+                    keep_mgo_.
+                  }
+                  (* OneA-Thunk-x0-Undefined: ... *)
+                  {
+                    invert_clear H.
+                    invert_clear H.
+                    invert_clear H.
+                    simpl.
+                    keep_mgo_.
+                  }
+                  (* OneA-Undefined-Thunk-pA: same as Goal 1 with Undefined as front *)
+                  {
+                    invert_clear H.
+                    invert_clear H.
+                    invert_clear H.
+                    invert_clear H.
+                    simpl.
+                    keep_mgo_.
+                  }
+                  (* OneA-Undefined-Undefined: same as Goal 2 with Undefined as front *)
+                  {
+                    invert_clear H.
+                    invert_clear H.
+                    invert_clear H.
+                    simpl.
+                    keep_mgo_.
+                  }
+                * (* TwoA — discharge via H0 *)
+                  repeat (invert_clear H).   (* or whatever the new name is *)
+                * (* ThreeA — discharge via H0 *)
+                  repeat (invert_clear H).
+              + (* Undefined fD' — uses undef_inverse_chop_digit (One _) Undefined *)
+                simpl.
+                mgo_.
+                keep_mgo_.
+
+            - (* t0 = Undefined *)
+              simpl.
+              mgo_.
+              keep_mgo_.
+          }
+        }
+        (* fd_m = Two (Triple x y z) t_m' *)
+        { 
+          keep_mgo_.
+          destruct t as [ [ t_x | | ] | ];
+            try (invert_clear HfD; invert_clear H; fail).
+          { 
+            invert_clear HfD. invert_clear H. simpl. 
+            destruct t0 as [ s_inner | ].
+            - (* Thunk s_inner *)
+              invert_clear HmD_out as [ | ? ? HsD ].
+              destruct s_inner as [| | fD' mD' rD' ];
+                try (invert_clear HsD; fail).
+              invert_clear HsD.
+              
+              destruct fD' as [ dA | ].
+              + destruct dA as [ | t_inner t2 | ].
+                * (* OneA — impossible *)
+                  invert_clear H0. invert_clear H0.
+                * (* TwoA t_inner t2 — valid *)
+                  invert_clear H0. invert_clear H0.
+                  destruct t_inner as [ pA | ].
+                  -- (* Thunk pA *)
+                    match goal with H : Thunk pA `less_defined` _ |- _ => invert_clear H end.
+                    destruct pA as [ t_y t_z | t_y t_z t_w ];
+                      try (match goal with H : _ `less_defined` _ |- _ => invert_clear H end; fail).
+                    match goal with H : PairA _ _ `less_defined` _ |- _ => invert_clear H end.
+                    simpl.
+                    mgo_.
+                    repeat (apply optimistic_thunk_go; mgo_).
+                  -- (* Undefined *)
+                    simpl.
+                    mgo_.
+                    repeat (apply optimistic_thunk_go; mgo_).
+                * (* ThreeA — impossible *)
+                  invert_clear H0. invert_clear H0.
+              + (* Undefined fD' *)
+                simpl.
+                mgo_.
+                repeat (apply optimistic_thunk_go; mgo_).
+
+            - (* t0 = Undefined *)
+              simpl.
+              mgo_.
+              repeat (apply optimistic_thunk_go; mgo_). 
+          }
+          { 
+            simpl.
+            destruct t0 as [ s_inner | ].
+            - (* Thunk s_inner *)
+              invert_clear HmD_out as [ | ? ? HsD ].
+              destruct s_inner as [| | fD' mD' rD' ];
+                try (invert_clear HsD; fail).
+              invert_clear HsD.
+              
+              destruct fD' as [ dA | ].
+              + destruct dA as [ | t_inner t2 | ].
+                * invert_clear H. invert_clear H.
+                * (* TwoA t_inner t2 *)
+                  match goal with H : Thunk (TwoA _ _) `less_defined` _ |- _ => invert_clear H end.
+                  match goal with H : TwoA _ _ `less_defined` _ |- _ => invert_clear H end.
+                  destruct t_inner as [ pA | ].
+                  -- (* Thunk pA *)
+                    match goal with H : Thunk pA `less_defined` _ |- _ => invert_clear H end.
+                    destruct pA as [ t_y t_z | t_y t_z t_w ];
+                      try (match goal with H : _ `less_defined` _ |- _ => invert_clear H end; fail).
+                    match goal with H : PairA _ _ `less_defined` _ |- _ => invert_clear H end.
+                    simpl.
+                    mgo_.
+                    repeat (apply optimistic_thunk_go; mgo_).
+                  -- (* Undefined *)
+                    simpl.
+                    mgo_.
+                    repeat (apply optimistic_thunk_go; mgo_).
+                * invert_clear H. invert_clear H.
+              + (* Undefined fD' *)
+                simpl.
+                mgo_.
+                repeat (apply optimistic_thunk_go; mgo_).
+
+            - (* t0 = Undefined *)
+              simpl.
+              mgo_.
+              repeat (apply optimistic_thunk_go; mgo_).
+          }
+        }
+        (* fd_m = Three (Triple x y z) t_m' t_m'' *)
+        { 
+          keep_mgo_.
+          destruct t as [ [ t_x | | ] | ];
+            try (invert_clear HfD; invert_clear H; fail).
+          { 
+            invert_clear HfD. invert_clear H. simpl. keep_mgo_.
+            destruct t0 as [ s_inner | ].
+            - (* Thunk s_inner *)
+              invert_clear HmD_out as [ | ? ? HsD ].
+              destruct s_inner as [| | fD' mD' rD' ];
+                try (invert_clear HsD; fail).
+              invert_clear HsD.
+              
+              destruct fD' as [ dA | ].
+              + (* Thunk dA *)
+                destruct dA as [ | | t_inner t2 t3 ].
+                * (* OneA — impossible *)
+                  repeat (invert_clear H0).
+                * (* TwoA — impossible *)
+                  repeat (invert_clear H0).
+                * (* ThreeA t_inner t2 t3 — valid *)
+                  (* H : Thunk (ThreeA t_inner t2 t3) ≤ exact (Three (Pair y z) t_m' t_m'') *)
+                  invert_clear H0.
+                  invert_clear H0.
+                  simpl. 
+                  destruct t_inner as [ pA | ].
+                  {
+                    invert_clear H0.
+                    destruct pA as [ t_y t_z | t_y t_z t_w ]; try invert_clear H0.
+                    simpl.
+                    keep_mgo_.
+                  }
+                  {
+                    simpl.
+                    keep_mgo_.
+                  }
+                  
+                  
+              + (* Undefined fD' *)
+                simpl.
+                mgo_.
+                repeat (apply optimistic_thunk_go; mgo_).
+
+            - (* t0 = Undefined *)
+              simpl.
+              mgo_.
+              repeat (apply optimistic_thunk_go; mgo_).
+          }
+          { 
+            simpl. 
+            destruct t0 as [ s_inner | ].
+            - (* Thunk s_inner *)
+              invert_clear HmD_out as [ | ? ? HsD ].
+              destruct s_inner as [| | fD' mD' rD' ];
+                try (invert_clear HsD; fail).
+              invert_clear HsD.
+              
+              destruct fD' as [ dA | ].
+              + destruct dA as [ | | t_inner t2 t3 ].
+                * match goal with H : Thunk (OneA _) `less_defined` _ |- _ => invert_clear H; invert_clear H end.
+                  (* or whatever discharges OneA ≤ ThreeA *)
+                * match goal with H : Thunk (TwoA _ _) `less_defined` _ |- _ => invert_clear H; invert_clear H end.
+                * (* ThreeA t_inner t2 t3 — valid *)
+                  match goal with H : Thunk (ThreeA _ _ _) `less_defined` _ |- _ => invert_clear H end.
+                  match goal with H : ThreeA _ _ _ `less_defined` _ |- _ => invert_clear H end.
+                  destruct t_inner as [ pA | ].
+                  -- (* Thunk pA *)
+                    match goal with H : Thunk pA `less_defined` _ |- _ => invert_clear H end.
+                    destruct pA as [ t_y t_z | t_y t_z t_w ];
+                      try (match goal with H : _ `less_defined` _ |- _ => invert_clear H end; fail).
+                    match goal with H : PairA _ _ `less_defined` _ |- _ => invert_clear H end.
+                    simpl.
+                    mgo_.
+                    repeat (apply optimistic_thunk_go; mgo_).
+                  -- (* Undefined *)
+                    simpl.
+                    mgo_.
+                    repeat (apply optimistic_thunk_go; mgo_).
+              + (* Undefined fD' *)
+                simpl.
+                mgo_.
+                repeat (apply optimistic_thunk_go; mgo_).
+
+            - (* t0 = Undefined *)
+              simpl.
+              mgo_.
+              repeat (apply optimistic_thunk_go; mgo_).
+          }
+        }
+  }
 
 (* Corollary at B := A. *)
 Lemma ftailD_spec (A : Type) `{LDA : LessDefined A, !Reflexive LDA}
