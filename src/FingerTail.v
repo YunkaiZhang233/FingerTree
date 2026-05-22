@@ -847,10 +847,6 @@ Opaque ftailD'_val_more.
 (* ================================================================= *)
 (** *** Phase E: Big proofs for [ftailD'].
 
-    Each lemma is initially [Admitted] with a comment describing what
-    needs to be shown.  Fill in the proofs in dependency order:
-    helpers first, then the three main theorems.
-
     Cost target: K=3 (matches [fconsD'_cost]'s effective bound and the
     physicist's argument's budget convention).  K=2 would suffice for the
     [mD_out = Thunk _] case, but the [mD_out = Undefined] sub-case of
@@ -3575,7 +3571,6 @@ Qed.
 (* Corollary at B := A. *)
 Lemma ftailD_spec (A : Type) `{LDA : LessDefined A, !Reflexive LDA, !Transitive LDA}
     (q : Seq A) (outD : SeqA A) :
-  q <> Nil ->
   outD `is_approx` ftail q ->
   forall qD, qD = Tick.val (ftailD q outD) ->
     let dcost := Tick.cost (ftailD q outD) in

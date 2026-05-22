@@ -17,6 +17,8 @@ Set Maximal Implicit Insertion.
 #[local] Existing Instance Exact_id | 1.
 #[local] Existing Instance Reflexive_LessDefined_T.
 #[local] Existing Instance Reflexive_LessDefined_prodA.
+#[local] Existing Instance Transitive_LessDefined_T.
+#[local] Existing Instance Transitive_LessDefined_prodA.
 
 (* ================================================================= *)
 (** ** Auxiliary Definitions                                     *)
@@ -96,7 +98,7 @@ Section Physicist'sArgument.
 
   (* --- budget: amortized cost per operation --- *)
   #[export] Instance budget : Budget op value :=
-    fun o _ => 3.
+    fun o _ => 4.
 
   (* --- exec: clairvoyant semantics --- *)
   #[export] Instance exec : Exec op valueA :=
@@ -242,9 +244,26 @@ Qed.
     }
     (* FTail *)
     {
-      admit.
+      destruct args as [ | q args' ]; [ intro; simpl; apply bottom_is_least; reflexivity | ].
+      destruct args' as [ | ? ? ]; [ | intro; simpl; apply bottom_is_least; reflexivity ].
+      destruct output as [ | outD output' ];
+        [intros; simpl; apply bottom_is_least; reflexivity | ].
+      destruct output' as [ | ? ? ];
+      [ | intro; simpl; apply bottom_is_least; reflexivity ].
+      (* args = [q], output = [outD] *)
+      intro Happrox.
+      invert_clear Happrox as [ | ? ? ? ? HoutD _ ].
+      simpl.
+      assert (Hin : forceD (bottom_of (exact (ftail q))) outD `less_defined` exact (ftail q)).
+      {
+        destruct outD as [ outA | ]; simpl.
+        - invert_clear HoutD. assumption.
+        - apply bottom_is_least. reflexivity.
+      }
+      eapply ftailD_approx in Hin.
+      simpl. repeat constructor. exact Hin.
     }
-  Admitted.
+  Qed.
 
   #[export] Existing Instance pd.
 
@@ -319,8 +338,37 @@ Qed.
       + (* q = More d s' d0 *)
         destruct d; unfold headA, headA'; simpl; mgo_.
     - (* FTail *)
-      admit.
-  Admitted.
+      simpl. intro args0.
+      refine (match args0 with
+              | [] => _
+              | [q] => _
+              | _ => _
+              end); try solve [ invert_clear 1; invert_clear 1; mgo_ ].
+      invert_clear 1.
+      invert_clear H0.
+      intros n xD HxD.
+      unfold demand in HxD. simpl in HxD.
+      rename x into outD.
+      destruct (ftailD q (forceD (bottom_of (exact (ftail q))) outD))
+        as [n_inner qD] eqn:EftailD.
+      simpl in HxD. invert_clear HxD.
+      mgo_.
+      eapply optimistic_mon; [ eapply ftailD_spec | ].
+      + eapply less_defined_forceD; [ apply bottom_is_least; reflexivity | eassumption ].
+      + rewrite EftailD. reflexivity.
+      + intros out cost [Hout Hcost].
+        mgo_.
+        {
+          destruct outD as [ outA | ]; simpl in Hout.
+          - constructor; exact Hout.
+          - constructor.
+        }
+        {
+          rewrite EftailD in Hcost. simpl in Hcost. lia.
+        }
+    Unshelve. 
+    all: destruct PA; assumption.
+  Qed.
   #[export] Existing Instance cd.
 
   (* --- WellDefinedPotential: sub-additivity of lub + potential(bottom) = 0 --- *)
@@ -430,8 +478,49 @@ Qed.
         simpl in EheadD; invert_clear EheadD;
         destruct output; cbn in *; lia.
     - (* FTail *)
-      admit.
-  Admitted.
+      invert_clear 1 as [ | ? ? ? ? HoutD _ ].
+      intros input cost HxD. unfold demand in HxD. simpl in HxD.
+      destruct (ftailD q (forceD (bottom_of (exact (ftail q))) outD))
+        as [cost' qD'] eqn:EftailD.
+      simpl in HxD. invert_clear HxD.
+      (* Goal: sumof potential [qD'] + cost' ≤ 3 + sumof potential [outD] *)
+      destruct outD as [ outA | ]; simpl in *.
+      + (* outD = Thunk outA: use ftailD'_cost *)
+        invert_clear HoutD.
+        rename H into HleA.  (* HleA : Thunk outA ≤ exact (ftail q) ⇒ outA ≤ exact (ftail q) after inversion *)
+        eapply (ftailD'_cost) in HleA.
+        unfold ftailD in EftailD.
+        rewrite EftailD in HleA. simpl in HleA.
+        unfold potential.
+        change (match qD' with Thunk qA => debt qA | Undefined => 0 end) with (debt qD').
+        lia.
+      + (* outD = Undefined *)
+        destruct q as [ | y | d m r ]; simpl in *.
+        (* q = Nil *)
+        {
+          invert_clear EftailD. destruct output; cbn in *; lia.
+        }
+        (* q = Unit y *)
+        {
+          invert_clear EftailD. destruct output; cbn in *; lia.
+        }
+        (* q = More d m r *)
+        {
+          destruct d as [ a | a b | a b c ].
+          - (* d = One a *)
+            Show.
+            destruct m as [ | t_m | fd_m m_spine r_d_m ];
+            [ destruct r as [ ra | ra rb | ra rb rc ]
+            | destruct t_m as [ pa pb | pa pb pc ]
+            | destruct fd_m as [ tm_h | tm_h tm_h2 | tm_h tm_h2 tm_h3 ];
+              destruct tm_h as [ pa pb | pa pb pc ] ];
+            simpl in EftailD; invert_clear EftailD; cbn in *; lia.
+          - (* d = Two a b *)
+            simpl in EftailD; invert_clear EftailD; destruct args; cbn in *; lia.
+          - (* d = Three a b c *)
+            simpl in EftailD; invert_clear EftailD; destruct args; cbn in *; lia.
+        }
+  Qed.
   #[export] Existing Instance physicist's_argumentD.
 
   (* --- Final theorem: amortized cost of any trace --- *)
