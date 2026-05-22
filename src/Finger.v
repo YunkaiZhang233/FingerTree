@@ -1263,6 +1263,8 @@ Qed.
 #[local] Existing Instance Reflexive_LessDefined_T.
 #[local] Existing Instance Reflexive_LessDefined_prodA.
 
+
+
 Lemma fconsD'_spec (A B : Type) :
   forall `{LDB : LessDefined B, !Reflexive LDB, Exact A B}
     (x : A) (s : Seq A) (outD : SeqA B),
@@ -4326,6 +4328,109 @@ Proof.
   admit.
 Admitted.
 
+(* Auxiliary lemmas *)
+Lemma ftailD'_front_OneA_undef_pair (A B : Type) `{LDB : LessDefined B, Exact A B}
+    (a b : A) (m_spine : Seq (Tuple (Tuple A))) (r_d_m : Digit (Tuple A))
+    (s_out : SeqA (TupleA B))
+    (Happrox : s_out `less_defined` exact (ftail (More (One (Pair a b)) m_spine r_d_m)))
+    (fmD : T (DigitA (TupleA B))) (mmD : T (SeqA (TupleA (TupleA B)))) (rmD : T (DigitA (TupleA B)))
+    (Hv : Tick.val (ftailD' (More (One (Pair a b)) m_spine r_d_m) s_out) = Thunk (MoreA fmD mmD rmD)) :
+  fmD = Thunk (OneA Undefined).
+Proof.
+  destruct m_spine as [| t_ms | fd_ms ms r_d_ms].
+  
+  - (* m_spine = Nil *)
+    (* ftail = Unit b OR More _ _ _ depending on r_d_m. Different structure. *)
+    destruct r_d_m as [w | w w' | w w' w''].
+    
+    + (* r_d_m = One w. ftail = More (Two b w) Nil ... no wait *)
+      (* Actually ftail (More (One (Pair a b)) Nil (One w)) goes via case 8/9 of ftail. 
+         Hmm wait, head (Pair _ _) = Some (Pair _ _). So case 8 of ftail. *)
+      (* But also m_spine = Nil, so ftail (More (One (Pair a b)) Nil (One w))
+                 = More (Two a b) (ftail Nil) (One w) -- WAIT *)
+      (* Let me check ftail directly: 
+         ftail (More (One (Pair a b)) Nil r_d_m) 
+         For More (One _) m r: case on m=Nil, then r.
+         Actually for our m = Nil and r = One w, ftail goes to case 5: Unit w. 
+         Wait that's only when the FRONT of s is One, m = Nil, r = One w. ftail = Unit w. *)
+      (* So ftail (More (One (Pair a b)) Nil (One w)) = Unit w. 
+         Then s_out ≤ exact (Unit w) = UnitA (exact w). *)
+      
+      (* ftailD' (More (One (Pair a b)) Nil (One w)) s_out: case m=Nil, r=One w.
+         Match s_out with UnitA yD => Tick.ret (Thunk (MoreA (Thunk (OneA Undefined)) (Thunk NilA) (Thunk (OneA yD)))). 
+         So front = Thunk (OneA Undefined). ✓ *)
+      
+      destruct s_out as [| t_so | ];
+        try (invert_clear Happrox; fail).
+      cbn in Hv. inversion Hv. reflexivity.
+    
+    + (* r_d_m = Two w w'. ftail = More (One w) Nil (One w'). *)
+      destruct s_out as [| | fD' mD' rD' ];
+        try (invert_clear Happrox; fail).
+      cbn in Hv. inversion Hv. reflexivity.
+    
+    + (* r_d_m = Three w w' w''. ftail = More (One w) Nil (Two w' w''). *)
+      destruct s_out as [| | fD' mD' rD' ];
+        try (invert_clear Happrox; fail).
+      cbn in Hv. inversion Hv. 
+      destruct rD' as [ [ | s1 s2 | ] | ];
+        simpl in Hv; inversion Hv; reflexivity.
+  
+  - (* m_spine = Unit t_ms. head (Unit t_ms) = Some t_ms. *)
+    destruct t_ms as [u v | u v w].
+    
+    + (* t_ms = Pair u v. Pair case fires. *)
+      destruct s_out as [| | fD' mD' rD' ];
+        try (invert_clear Happrox; fail).
+      cbn in Hv. inversion Hv. 
+      destruct fD' as [ [ | t1 t2 | ] | ];
+        cbn in Hv; inversion Hv; reflexivity.
+    
+    + (* t_ms = Triple u v w. Triple case fires. *)
+      destruct s_out as [| | fD' mD' rD' ];
+        try (invert_clear Happrox; fail).
+      cbn in Hv. inversion Hv. reflexivity.
+  
+  - (* m_spine = More fd_ms ms r_d_ms. head = Some (first slot of fd_ms). *)
+    destruct fd_ms as [t_fd | t_fd t_fd' | t_fd t_fd' t_fd''];
+    destruct t_fd as [u v | u v w];
+      destruct s_out as [| | fD' mD' rD' ];
+        try (invert_clear Happrox; fail);
+      cbn in Hv; inversion Hv; try reflexivity;
+      destruct fD' as [ [ | t1 t2 | ] | ];
+        cbn in Hv; inversion Hv; reflexivity.
+Qed.
+
+Lemma ftailD'_front_TwoA_undef_pair (A B : Type) `{LDB : LessDefined B, Exact A B}
+    (a b : A) (t_m' : Tuple A) (m_spine : Seq (Tuple (Tuple A))) (r_d_m : Digit (Tuple A))
+    (s_out : SeqA (TupleA B))
+    (Happrox : s_out `less_defined` exact (ftail (More (Two (Pair a b) t_m') m_spine r_d_m)))
+    (fmD : T (DigitA (TupleA B))) (mmD : T (SeqA (TupleA (TupleA B)))) (rmD : T (DigitA (TupleA B)))
+    (Hv : Tick.val (ftailD' (More (Two (Pair a b) t_m') m_spine r_d_m) s_out) = Thunk (MoreA fmD mmD rmD)) :
+  exists xD, fmD = Thunk (TwoA Undefined xD).
+Proof.
+  destruct s_out as [| | fD mD rD];
+    try (invert_clear Happrox; fail).
+  destruct fD as [ [ | tx ty | ] | ];
+    cbn in Hv; inversion Hv; eexists; reflexivity.
+Qed.
+
+Lemma ftailD'_front_ThreeA_undef_pair (A B : Type) `{LDB : LessDefined B, Exact A B}
+    (a b : A) (t_m' t_m'' : Tuple A) (m_spine : Seq (Tuple (Tuple A))) (r_d_m : Digit (Tuple A))
+    (s_out : SeqA (TupleA B))
+    (Happrox : s_out `less_defined` exact (ftail (More (Three (Pair a b) t_m' t_m'') m_spine r_d_m)))
+    (fmD : T (DigitA (TupleA B))) (mmD : T (SeqA (TupleA (TupleA B)))) (rmD : T (DigitA (TupleA B)))
+    (Hv : Tick.val (ftailD' (More (Three (Pair a b) t_m' t_m'') m_spine r_d_m) s_out) = Thunk (MoreA fmD mmD rmD)) :
+  exists xD yD, fmD = Thunk (ThreeA Undefined xD yD).
+Proof.
+  destruct s_out as [| | fD mD rD];
+    try (invert_clear Happrox; fail).
+  destruct fD as [ [ | | tx ty tz ] | ];
+    cbn in Hv; inversion Hv; eexists; eexists; reflexivity.
+Qed.
+
+
+
 
 (* ----------------------------------------------------------------- *)
 (** **** Main theorem 4: [ftailD'_spec] (clairvoyance equivalence). *)
@@ -4333,7 +4438,7 @@ Admitted.
 
 
 Lemma ftailD'_spec : forall (A B : Type)
-    `{LDB : LessDefined B, !Reflexive LDB, Exact A B}
+    `{LDB : LessDefined B, !Reflexive LDB, !Transitive LDB, Exact A B}
     (q : Seq A) (outD : SeqA B),
     q <> Nil ->
     outD `is_approx` ftail q ->
@@ -4352,11 +4457,11 @@ Proof.
         [inverse_chop_demand] threading the demand back.
      
      Closely mirrors [fconsD'_spec]. *)
-  intros A B LDB HReflexive EAB q outD Hnonil Happrox qD HqD dcost.
-  revert A q B LDB HReflexive EAB outD Hnonil Happrox qD HqD dcost.
+  intros A B LDB HReflexive HTransitive EAB q outD Hnonil Happrox qD HqD dcost.
+  revert A q B LDB HReflexive HTransitive EAB outD Hnonil Happrox qD HqD dcost.
   apply (ftail_ind
     (fun A q q' =>
-       forall B `{LDB : LessDefined B, !Reflexive LDB, Exact A B}
+       forall B `{LDB : LessDefined B, !Reflexive LDB, !Transitive LDB, Exact A B}
               (outD : SeqA B),
          q <> Nil ->
          outD `is_approx` q' ->
@@ -4366,13 +4471,13 @@ Proof.
   
   (* Case 1: q = Nil — vacuous via Hnonil *)
   {
-    intros A B LDB HReflexive EAB outD Hnonil Happrox qD HqD dcost.
+    intros A B LDB HReflexive HTransitive EAB outD Hnonil Happrox qD HqD dcost.
     exfalso. apply Hnonil. reflexivity.
   }
   
   (* Case 2: q = Unit x *)
   {
-    intros A x B LDB HReflexive EAB outD Hnonil Happrox qD HqD dcost.
+    intros A x B LDB HReflexive HTransitive EAB outD Hnonil Happrox qD HqD dcost.
     revert Happrox.
     destruct outD; intro Happrox; try (invert_clear Happrox; fail).
     subst. simpl. mgo_.
@@ -4380,7 +4485,7 @@ Proof.
 
   (* === Case 3: q = More (Three a x y) m r, q' = More (Two x y) m r === *)
   {
-    intros A a x y m r B LDB HReflexive EAB outD Hnonil Happrox qD HqD dcost.
+    intros A a x y m r B LDB HReflexive HTransitive EAB outD Hnonil Happrox qD HqD dcost.
     revert Happrox.
     destruct outD; intro Happrox.
     - invert_clear Happrox.
@@ -4398,7 +4503,7 @@ Proof.
 
   (* === Case 4: q = More (Two a x) m r, q' = More (One x) m r === *)
   {
-    intros A a x m r B LDB HReflexive EAB outD Hnonil Happrox qD HqD dcost.
+    intros A a x m r B LDB HReflexive HTransitive EAB outD Hnonil Happrox qD HqD dcost.
     revert Happrox.
     destruct outD; intro Happrox.
     - invert_clear Happrox.
@@ -4420,7 +4525,7 @@ Proof.
 
   (* === Case 5: q = More (One a) Nil (One y), q' = Unit y === *)
   {
-    intros A a y B LDB HReflexive EAB outD Hnonil Happrox qD HqD dcost.
+    intros A a y B LDB HReflexive HTransitive EAB outD Hnonil Happrox qD HqD dcost.
     revert Happrox.
     destruct outD; intro Happrox.
     - invert_clear Happrox.
@@ -4431,7 +4536,7 @@ Proof.
 
   (* === Case 6: q = More (One a) Nil (Two y z), q' = More (One y) Nil (One z) === *)
   {
-    intros A a y z B LDB HReflexive EAB outD Hnonil Happrox qD HqD dcost.
+    intros A a y z B LDB HReflexive HTransitive EAB outD Hnonil Happrox qD HqD dcost.
     revert Happrox.
     destruct outD; intro Happrox.
     - invert_clear Happrox.
@@ -4482,7 +4587,7 @@ Proof.
   }
   (* === Case 7: q = More (One a) Nil (Three y z w), q' = More (One y) Nil (Two z w) === *)
   {
-    intros A a y z w B LDB HReflexive EAB outD Hnonil Happrox qD HqD dcost.
+    intros A a y z w B LDB HReflexive HTransitive EAB outD Hnonil Happrox qD HqD dcost.
     revert Happrox.
     destruct outD; intro Happrox.
     - invert_clear Happrox.
@@ -4523,7 +4628,7 @@ Proof.
 
   (* === Case 8: q = More (One a) m r, head m = Some (Pair x y), recursive === *)
   {
-    intros A a x y m r IH Hhead B LDB HReflexive EAB outD Hnonil Happrox qD HqD dcost.
+    intros A a x y m r IH Hhead B LDB HReflexive HTransitive EAB outD Hnonil Happrox qD HqD dcost.
     revert Happrox.
     destruct outD; intro Happrox.
     - invert_clear Happrox.
@@ -4583,31 +4688,362 @@ Proof.
         (* fd_m = One (Pair x y) *)
         { 
           destruct t0 as [ s_out | ].
-          * (* Thunk *)
-          Show.
-            admit.
-          * (* Undefined *)
-            admit. 
+          (* Thunk *)
+          {
+            invert_clear HmD_out as [ | ? ? HsD ].
+            (* HsD : s_out ≤ Exact_Seq (ftail (More (One (Pair x y)) m_spine r_d_m)) *)
+            
+            destruct t as [ [ | tx ty | ] | ];
+              try (invert_clear HfD; invert_clear H; fail).
+            
+            (* TwoA tx ty *)     
+            - invert_clear HfD. invert_clear H.
+              (* H : tx ≤ exact x, H0 : ty ≤ exact y *)
+              
+              simpl head.
+              
+              (* Get Tick.val's shape via ftailD'_val_more *)
+              pose proof (@ftailD'_val_more (Tuple A) (TupleA B) _ _
+                            (One (Pair x y)) m_spine r_d_m s_out HsD) as Hex.
+              destruct Hex as [v Hv].
+              
+              (* Get the approx for v *)
+              pose proof (@ftailD'_approx (Tuple A) (TupleA B) _ _ _
+                            (More (One (Pair x y)) m_spine r_d_m) s_out HsD) as Happrox_v.
+              rewrite Hv in Happrox_v.
+              invert_clear Happrox_v.
+              destruct v as [ | | fmD mmD rmD ];
+                [ exfalso; clear -H1; invert_clear H1 |
+                  exfalso; clear -H1; invert_clear H1 | ].
+              invert_clear H1.
+              (* Now: Hfmd : fmD ≤ ..., HmmD : mmD ≤ ..., HrmD : rmD ≤ ... *)
+              
+              (* Apply helper to force fmD = Thunk (OneA Undefined) *)
+              pose proof (@ftailD'_front_OneA_undef_pair A B _ _
+                            x y m_spine r_d_m s_out HsD fmD mmD rmD Hv) as Hfmd_undef.
+              subst fmD.
+              
+              (* Now: fmD has been substituted to Thunk (OneA Undefined) *)
+              simpl. mgo_. rewrite Hv.
+              simpl.   (* reduce add_pair_to_head_demand *)
+              
+              (* Cascade clairvoyant forcings *)
+              mgo_.
+              
+              (* `let~ f' := ret (TwoA tx ty) in` — force *)
+              apply optimistic_thunk_go. mgo_. 
+              
+              (* `let~ m' := ftailA' m in` — force; this is the recursive call *)
+              apply optimistic_thunk_go.
+
+              (* Refold the unfolded body back to ftailA *)
+              change (let! _ := tick in (fun m => match m with NilA => _ | UnitA t => _ | MoreA fmD mmD0 rmD0 => _ end) $! mmD)
+                with (ftailA' (MoreA (Thunk (OneA (Thunk (PairA tx ty)))) mmD rmD)).
+              
+              (* Bridge from IH to the recursive call via optimistic_corelax *)
+              change (ftailA' (MoreA (Thunk (OneA (Thunk (PairA tx ty)))) mmD rmD))
+                with (ftailA (Thunk (MoreA (Thunk (OneA (Thunk (PairA tx ty)))) mmD rmD))).
+              
+              eapply optimistic_corelax; assert (HPreOrder: PreOrder LDB) by (constructor; assumption).
+
+              + (* Show: ftailA (Thunk (MoreA (Thunk (OneA Undefined)) mmD rmD))
+                          ≤ ftailA (Thunk (MoreA (Thunk (OneA (Thunk (PairA tx ty)))) mmD rmD)) *)
+                (* mgo_. *)
+
+                instantiate (1 := ftailA (Thunk (MoreA (Thunk (OneA Undefined)) mmD rmD))).
+
+                apply ftailA_mon.
+                repeat constructor; reflexivity.
+              + red. intros x_in x_in' n_in n_in' Hx_le Hn_le HP.
+              destruct HP as (y' & m & Hret & Hout_le & Hcost_le).
+              cbn in Hret. inversion Hret. subst y' m.
+              
+              exists (MoreA (Thunk (TwoA tx ty)) (Thunk x_in') t1), 0.
+              split.
+              -- reflexivity.   (* ret X X 0 *)
+              -- split.
+                ++ etransitivity; [exact Hout_le | ].
+                  constructor; [reflexivity | constructor; exact Hx_le | reflexivity].
+                ++ lia.
+
+            + (* IH application *)
+              eapply optimistic_mon.
+              {
+                eapply (IH (TupleA B) _ _ _ _ s_out).
+                - discriminate.
+                - exact HsD.
+                - auto.
+              }
+              {
+                intros out_IH cost_IH [Hout_IH Hcost_IH].
+                cbn.
+                exists (MoreA (Thunk (TwoA tx ty)) (Thunk out_IH) t1), 0.
+                split.
+                + reflexivity.
+                + split.
+                  * constructor.
+                    -- reflexivity.
+                    -- constructor. exact Hout_IH.
+                    -- reflexivity.
+                  * lia.
+              }
+          
+          (* Undefined *)
+          (* Undefined t case *)
+          - simpl head.
+            
+            pose proof (@ftailD'_val_more (Tuple A) (TupleA B) _ _
+                                        (One (Pair x y)) m_spine r_d_m s_out HsD) as Hex.
+            destruct Hex as [v Hv].
+            
+            pose proof (@ftailD'_approx (Tuple A) (TupleA B) _ _ _
+                                        (More (One (Pair x y)) m_spine r_d_m) s_out HsD) as Happrox_v.
+            rewrite Hv in Happrox_v.
+            invert_clear Happrox_v.
+            destruct v as [ | | fmD mmD rmD ];
+              [ exfalso; clear -H; invert_clear H |
+                exfalso; clear -H; invert_clear H | ].
+            invert_clear H.
+            
+            pose proof (@ftailD'_front_OneA_undef_pair A B _ _
+                                        x y m_spine r_d_m s_out HsD fmD mmD rmD Hv) as Hfmd_undef.
+            subst fmD.
+            
+            simpl. mgo_. rewrite Hv.
+            simpl.
+            
+            mgo_.
+            
+            apply optimistic_thunk_go. mgo_. 
+            apply optimistic_thunk_go.
+            
+            change (let! _ := tick in (fun m => match m with NilA => _ | UnitA t => _ | MoreA fmD mmD0 rmD0 => _ end) $! mmD)
+              with (ftailA' (MoreA (Thunk (OneA (Thunk (PairA Undefined Undefined)))) mmD rmD)).
+            
+            change (ftailA' (MoreA (Thunk (OneA (Thunk (PairA Undefined Undefined)))) mmD rmD))
+              with (ftailA (Thunk (MoreA (Thunk (OneA (Thunk (PairA Undefined Undefined)))) mmD rmD))).
+            
+            eapply optimistic_corelax; assert (HPreOrder: PreOrder LDB) by (constructor; assumption).
+            + instantiate (1 := ftailA (Thunk (MoreA (Thunk (OneA Undefined)) mmD rmD))).
+              apply ftailA_mon.
+              repeat constructor; reflexivity.
+            + red. intros x_in x_in' n_in n_in' Hx_le Hn_le HP.
+              destruct HP as (y' & m & Hret & Hout_le & Hcost_le).
+              cbn in Hret. inversion Hret. subst y' m.
+              exists (MoreA (Thunk (TwoA Undefined Undefined)) (Thunk x_in') t1), 0.
+              split.
+              -- reflexivity.
+              -- split.
+                ++ etransitivity; [exact Hout_le | ].
+                   constructor; [reflexivity | constructor; exact Hx_le | reflexivity].
+                ++ lia.
+            + (* IH application *)
+              eapply optimistic_mon.
+              {
+                eapply (IH (TupleA B) _ _ _ _ s_out).
+                * discriminate.
+                * exact HsD.
+                * auto.
+              }
+              {
+                intros out_IH cost_IH [Hout_IH Hcost_IH].
+                cbn.
+                exists (MoreA (Thunk (TwoA Undefined Undefined)) (Thunk out_IH) t1), 0.
+                split.
+                + reflexivity.
+                + split.
+                  * constructor.
+                    -- auto.
+                    -- constructor. exact Hout_IH.
+                    -- reflexivity.
+                  * lia.
+              }
+          }
+          * (* mD_out = Undefined *)
+            Show.
+            (* (* fd_m = One (Pair x y), Undefined mD_out *) *)
+            invert_clear HmD_out.   (* mD_out = Undefined now substituted *)
+            simpl head.
+            
+            destruct t as [ [ | tx ty | ] | ];
+              try (invert_clear HfD; invert_clear H; fail).
+            
+            + (* TwoA tx ty *)
+              invert_clear HfD. invert_clear H.
+              simpl.
+              
+              (* Now qD = Thunk (MoreA (Thunk (OneA Undefined)) 
+                                        (Thunk (MoreA (Thunk (OneA (Thunk (PairA tx ty)))) Undefined Undefined))
+                                        t1) *)
+              
+              mgo_.
+              
+              (* let~ f' := ret (TwoA tx ty) — force *)
+              apply optimistic_thunk_go. mgo_.
+              
+              (* let~ m' := ftailA' (MoreA _ Undefined Undefined) — skip *)
+              apply optimistic_skip.
+              
+              mgo_.
+            
+            + (* Undefined *)
+              simpl.
+              mgo_.
+              
+              (* let~ f' := ret (TwoA Undefined Undefined) — skip (since front Undefined) *)
+              apply optimistic_skip.
+
+              mgo_. 
+              
+              (* let~ m' := ftailA' ... — skip *)
+              apply optimistic_skip.
+              
+              mgo_.
         }
         
         (* fd_m = Two (Pair x y) t_m' *)
-        { 
+        {
           destruct t0 as [ s_out | ].
-          * admit.
-          * admit. 
+          
+          (* Thunk s_out *)
+          - invert_clear HmD_out as [ | ? ? HsD ].
+            
+            destruct s_out as [ | | s_fD s_mD s_rD ];
+              try (invert_clear HsD; fail).
+            invert_clear HsD.
+            (* Hypotheses: H1 : s_fD ≤ ..., H2 : s_mD ≤ ..., H3 : s_rD ≤ ... *)
+            
+            destruct t as [ [ | tx ty | ] | ].
+            + (* OneA - impossible *)
+              invert_clear HfD. invert_clear H2.
+            
+            + (* TwoA tx ty *)
+              invert_clear HfD. invert_clear H2.
+              simpl. mgo_.
+              destruct s_fD as [ [ s_xD | | ] | ];
+                try (invert_clear H; invert_clear H; fail).
+              -- (* OneA s_xD *)
+                invert_clear H. invert_clear H.
+                simpl. mgo_.
+                apply optimistic_thunk_go. mgo_.
+                apply optimistic_thunk_go. mgo_.
+                apply optimistic_thunk_go. mgo_.
+              -- (* Undefined *)
+                simpl. mgo_.
+                apply optimistic_thunk_go. mgo_.
+                apply optimistic_thunk_go. mgo_.
+                apply optimistic_thunk_go. mgo_. 
+
+            + (* ThreeA: also impossible. *)
+              invert_clear HfD. invert_clear H2. 
+            
+            (* Undefined t *)
+            + simpl. mgo_.
+              destruct s_fD as [ [ s_xD | | ] | ];
+                try (invert_clear H; invert_clear H; fail).
+              -- (* OneA s_xD *)
+                invert_clear H. invert_clear H.
+                simpl. mgo_.
+                apply optimistic_thunk_go. mgo_.
+                apply optimistic_thunk_go. mgo_.
+                apply optimistic_thunk_go. mgo_.
+              -- (* Undefined *)
+                simpl. mgo_.
+                apply optimistic_thunk_go. mgo_.
+                apply optimistic_thunk_go. mgo_.
+                apply optimistic_thunk_go. mgo_.      
+          
+          (* Undefined mD_out *)
+          - invert_clear HmD_out.
+            simpl head.
+            
+            destruct t as [ [ | tx ty | ] | ];
+              try (invert_clear HfD; invert_clear H; fail).
+            
+            + (* TwoA tx ty *)
+              invert_clear HfD. invert_clear H.
+              simpl.
+              mgo_.
+              apply optimistic_thunk_go. mgo_.
+              apply optimistic_skip. mgo_.
+            + (* Undefined *)
+              simpl.
+              mgo_.
+              apply optimistic_skip. mgo_.
+              apply optimistic_skip. mgo_.
         }
         
         (* fd_m = Three (Pair x y) t_m' t_m'' *)
-        { 
+        {
           destruct t0 as [ s_out | ].
-          * admit. 
-          * admit.
+          
+          (* Thunk s_out *)
+          - invert_clear HmD_out as [ | ? ? HsD ].
+            destruct s_out as [ | | s_fD s_mD s_rD ];
+              try (invert_clear HsD; fail).
+            invert_clear HsD.
+            (* Hypotheses: H1 : s_fD ≤ ..., H2 : s_mD ≤ ..., H3 : s_rD ≤ ... *)
+            
+            destruct t as [ [ | tx ty | ] | ].
+            + (* OneA - impossible *)
+              invert_clear HfD. invert_clear H2.
+            + (* TwoA tx ty *)
+              invert_clear HfD. invert_clear H2.
+              simpl. mgo_.
+              destruct s_fD as [ [ | s_xD s_yD | ] | ];
+                try (invert_clear H; invert_clear H; fail).
+              -- (* TwoA s_xD s_yD *)
+                invert_clear H. invert_clear H.
+                simpl. mgo_.
+                apply optimistic_thunk_go. mgo_.
+                apply optimistic_thunk_go. mgo_.
+                apply optimistic_thunk_go. mgo_.
+              -- (* Undefined *)
+                simpl. mgo_.
+                apply optimistic_thunk_go. mgo_.
+                apply optimistic_thunk_go. mgo_.
+                apply optimistic_thunk_go. mgo_.
+            + (* ThreeA: also impossible. *)
+              invert_clear HfD. invert_clear H2.
+            
+            (* Undefined t *)
+            + simpl. mgo_.
+              destruct s_fD as [ [ | s_xD s_yD | ] | ];
+                try (invert_clear H; invert_clear H; fail).
+              -- (* TwoA s_xD s_yD *)
+                invert_clear H. invert_clear H.
+                simpl. mgo_.
+                apply optimistic_thunk_go. mgo_.
+                apply optimistic_thunk_go. mgo_.
+                apply optimistic_thunk_go. mgo_.
+              -- (* Undefined *)
+                simpl. mgo_.
+                apply optimistic_thunk_go. mgo_.
+                apply optimistic_thunk_go. mgo_.
+                apply optimistic_thunk_go. mgo_.
+          
+          (* Undefined mD_out *)
+          - invert_clear HmD_out.
+            simpl head.
+            destruct t as [ [ | tx ty | ] | ];
+              try (invert_clear HfD; invert_clear H; fail).
+            + (* TwoA tx ty *)
+              invert_clear HfD. invert_clear H.
+              simpl.
+              mgo_.
+              apply optimistic_thunk_go. mgo_.
+              apply optimistic_skip. mgo_.
+            + (* Undefined *)
+              simpl.
+              mgo_.
+              apply optimistic_skip. mgo_.
+              apply optimistic_skip. mgo_.
         }
   }
 
   (* === Case 9: q = More (One a) m r, head m = Some (Triple x y z), non-recursive === *)
   {
-    intros A a x y z m r Hhead B LDB HReflexive EAB outD Hnonil Happrox qD HqD dcost.
+    intros A a x y z m r Hhead B LDB HReflexive HTransitive EAB outD Hnonil Happrox qD HqD dcost.
     (* Now: Hnonil : More ... <> Nil
             Happrox : outD ≤ exact (More (One x) (map1 chop_triple m) r)
             qD : T (SeqA B)
@@ -4985,10 +5421,12 @@ Proof.
           }
         }
   }
+Qed.
 
 (* Corollary at B := A. *)
-Lemma ftailD_spec (A : Type) `{LDA : LessDefined A, !Reflexive LDA}
+Lemma ftailD_spec (A : Type) `{LDA : LessDefined A, !Reflexive LDA, !Transitive LDA}
     (q : Seq A) (outD : SeqA A) :
+  q <> Nil ->
   outD `is_approx` ftail q ->
   forall qD, qD = Tick.val (ftailD q outD) ->
     let dcost := Tick.cost (ftailD q outD) in
@@ -5061,7 +5499,8 @@ Section Physicist'sArgument.
   Inductive op : Type :=
   | Empty
   | FCons (x : A)
-  | Head.
+  | Head
+  | FTail.
 
   (* --- eval: pure semantics --- *)
   #[export] Instance eval : Eval op value :=
@@ -5069,6 +5508,7 @@ Section Physicist'sArgument.
                 | Empty, [] => [empty]
                 | FCons x, [q] => [fcons x q]
                 | Head, [q] => []  (* Head returns an element, not a queue *)
+                | FTail, [q] => [ftail q]
                 | _, _ => []
                 end.
 
@@ -5082,6 +5522,7 @@ Section Physicist'sArgument.
                | Empty, [] => let! q := emptyA in ret [Thunk q]
                | FCons x, [q] => let! q' := fconsA (exact x) q in ret [Thunk q']
                | Head, [q] => let! _ := headA q in ret []
+               | FTail, [q] => let! q' := ftailA q in ret [Thunk q']
                | _, _ => ret []
                end.
 
@@ -5108,7 +5549,12 @@ Section Physicist'sArgument.
       invert_clear H0; try solve [ solve_mon ].
       apply bind_mon.
       + apply headA_mon; try solve [ auto ]. 
-      + intros. solve_mon. 
+      + intros. solve_mon.
+    - (* FTail *)
+      invert_clear H0; try solve [ solve_mon ].
+      apply bind_mon.
+      + apply ftailA_mon. assumption.
+      + intros. solve_mon.
 Qed.
 
   (* --- approx algebra --- *)
@@ -5141,6 +5587,10 @@ Qed.
           Tick.ret [qD]
       | Head, [q], [] =>
           let+ qD := headD q None in
+          Tick.ret [qD]
+      | FTail, [q], [outD] =>
+          let outD := forceD (bottom_of (exact (ftail q))) outD in
+          let+ qD := ftailD q outD in
           Tick.ret [qD]
       | _, _, _ => Tick.ret (bottom_of (exact args))
       end.
@@ -5208,7 +5658,12 @@ Qed.
       + (* q = More d s' d0: headD (More _ _ _) None = bottom, Tick.val = Undefined *)
         destruct d; simpl; repeat constructor.
     }
-  Qed.
+    (* FTail *)
+    {
+      admit.
+    }
+  Admitted.
+
   #[export] Existing Instance pd.
 
   (* --- CvDemand: demand functions agree with clairvoyant semantics --- *)
@@ -5281,7 +5736,9 @@ Qed.
         unfold headA, headA'. mgo_.
       + (* q = More d s' d0 *)
         destruct d; unfold headA, headA'; simpl; mgo_.
-  Qed.
+    - (* FTail *)
+      admit.
+  Admitted.
   #[export] Existing Instance cd.
 
   (* --- WellDefinedPotential: sub-additivity of lub + potential(bottom) = 0 --- *)
@@ -5338,6 +5795,7 @@ Qed.
             | Empty, [], [_] => _
             | FCons x, [q], [outD] => _
             | Head, [q], [] => _
+            | FTail, [q], [outD] => _
             | _, _, _ => _
             end); try solve [ do 2 invert_clear 1; simpl in *;
                               try (rewrite Hpb); lia ].
@@ -5389,7 +5847,9 @@ Qed.
         [ | | destruct d as [ a | a b | a b c ] ];
         simpl in EheadD; invert_clear EheadD;
         destruct output; cbn in *; lia.
-  Qed.
+    - (* FTail *)
+      admit.
+  Admitted.
   #[export] Existing Instance physicist's_argumentD.
 
   (* --- Final theorem: amortized cost of any trace --- *)
