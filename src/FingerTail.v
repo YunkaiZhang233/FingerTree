@@ -679,7 +679,7 @@ Fixpoint ftailD' (A B : Type) `{Exact A B} (s : Seq A) (outD : SeqA B)
   | Nil =>
       (* ftail Nil = Nil *)
       match outD with
-      | NilA => Tick.ret Undefined
+      | NilA => Tick.ret (Thunk NilA)
       | _    => bottom
       end
 
@@ -2483,27 +2483,6 @@ Qed.
 (* Note: change to Qed once ftailD'_cost is closed. *)
 
 
-(* ----------------------------------------------------------------- *)
-(** **** Main theorem 3: [ftailD'_cost_bottom]
-
-    Special case of [ftailD'_cost] for the [outD = bottom_of (exact (ftail q))] case,
-    used by the physicist's argument when the output demand is [Undefined]. *)
-(* ----------------------------------------------------------------- *)
-
-
-Lemma ftailD'_cost_bottom (A B : Type) `{LDB : LessDefined B, !Reflexive LDB, Exact A B}
-    (q : Seq A) :
-  let inM := ftailD' q (bottom_of (exact (ftail q))) in
-  debt (Tick.val inM) + Tick.cost inM <= 4.
-Proof.
-  (* Specialize [ftailD'_cost] with [outD = bottom_of (exact (ftail q))]
-     and bound debt outD ≤ 1. (The +1 over K=3 from ftailD'_cost accounts 
-     for the Two-front case where bottom_of's Undefined-rear contributes 1
-     to potential vs the 0 we accounted for in the abstract analysis.)
-     
-     Mirror [fconsD'_cost_bottom] structurally. *)
-  admit.
-Admitted.
 
 (* Auxiliary lemmas *)
 Lemma ftailD'_front_OneA_undef_pair (A B : Type) `{LDB : LessDefined B, Exact A B}
@@ -2617,7 +2596,6 @@ Qed.
 Lemma ftailD'_spec : forall (A B : Type)
     `{LDB : LessDefined B, !Reflexive LDB, !Transitive LDB, Exact A B}
     (q : Seq A) (outD : SeqA B),
-    q <> Nil ->
     outD `is_approx` ftail q ->
     forall qD, qD = Tick.val (ftailD' q outD) ->
       let dcost := Tick.cost (ftailD' q outD) in
@@ -2634,27 +2612,27 @@ Proof.
         [inverse_chop_demand] threading the demand back.
      
      Closely mirrors [fconsD'_spec]. *)
-  intros A B LDB HReflexive HTransitive EAB q outD Hnonil Happrox qD HqD dcost.
-  revert A q B LDB HReflexive HTransitive EAB outD Hnonil Happrox qD HqD dcost.
+  intros A B LDB HReflexive HTransitive EAB q outD Happrox qD HqD dcost.
+  revert A q B LDB HReflexive HTransitive EAB outD Happrox qD HqD dcost.
   apply (ftail_ind
     (fun A q q' =>
        forall B `{LDB : LessDefined B, !Reflexive LDB, !Transitive LDB, Exact A B}
               (outD : SeqA B),
-         q <> Nil ->
          outD `is_approx` q' ->
          forall qD, qD = Tick.val (ftailD' q outD) ->
            let dcost := Tick.cost (ftailD' q outD) in
            ftailA qD [[ fun out cost => outD `less_defined` out /\ cost <= dcost ]])).
   
-  (* Case 1: q = Nil — vacuous via Hnonil *)
+  (* Case 1: q = Nil *)
   {
-    intros A B LDB HReflexive HTransitive EAB outD Hnonil Happrox qD HqD dcost.
-    exfalso. apply Hnonil. reflexivity.
+    intros A B LDB HReflexive HTransitive EAB outD Happrox qD HqD dcost.
+    destruct outD; try (invert_clear Happrox; fail).
+    subst. simpl. mgo_.
   }
   
   (* Case 2: q = Unit x *)
   {
-    intros A x B LDB HReflexive HTransitive EAB outD Hnonil Happrox qD HqD dcost.
+    intros A x B LDB HReflexive HTransitive EAB outD Happrox qD HqD dcost.
     revert Happrox.
     destruct outD; intro Happrox; try (invert_clear Happrox; fail).
     subst. simpl. mgo_.
@@ -2662,7 +2640,7 @@ Proof.
 
   (* === Case 3: q = More (Three a x y) m r, q' = More (Two x y) m r === *)
   {
-    intros A a x y m r B LDB HReflexive HTransitive EAB outD Hnonil Happrox qD HqD dcost.
+    intros A a x y m r B LDB HReflexive HTransitive EAB outD Happrox qD HqD dcost.
     revert Happrox.
     destruct outD; intro Happrox.
     - invert_clear Happrox.
@@ -2680,7 +2658,7 @@ Proof.
 
   (* === Case 4: q = More (Two a x) m r, q' = More (One x) m r === *)
   {
-    intros A a x m r B LDB HReflexive HTransitive EAB outD Hnonil Happrox qD HqD dcost.
+    intros A a x m r B LDB HReflexive HTransitive EAB outD Happrox qD HqD dcost.
     revert Happrox.
     destruct outD; intro Happrox.
     - invert_clear Happrox.
@@ -2702,7 +2680,7 @@ Proof.
 
   (* === Case 5: q = More (One a) Nil (One y), q' = Unit y === *)
   {
-    intros A a y B LDB HReflexive HTransitive EAB outD Hnonil Happrox qD HqD dcost.
+    intros A a y B LDB HReflexive HTransitive EAB outD Happrox qD HqD dcost.
     revert Happrox.
     destruct outD; intro Happrox.
     - invert_clear Happrox.
@@ -2713,7 +2691,7 @@ Proof.
 
   (* === Case 6: q = More (One a) Nil (Two y z), q' = More (One y) Nil (One z) === *)
   {
-    intros A a y z B LDB HReflexive HTransitive EAB outD Hnonil Happrox qD HqD dcost.
+    intros A a y z B LDB HReflexive HTransitive EAB outD Happrox qD HqD dcost.
     revert Happrox.
     destruct outD; intro Happrox.
     - invert_clear Happrox.
@@ -2764,7 +2742,7 @@ Proof.
   }
   (* === Case 7: q = More (One a) Nil (Three y z w), q' = More (One y) Nil (Two z w) === *)
   {
-    intros A a y z w B LDB HReflexive HTransitive EAB outD Hnonil Happrox qD HqD dcost.
+    intros A a y z w B LDB HReflexive HTransitive EAB outD Happrox qD HqD dcost.
     revert Happrox.
     destruct outD; intro Happrox.
     - invert_clear Happrox.
@@ -2805,7 +2783,7 @@ Proof.
 
   (* === Case 8: q = More (One a) m r, head m = Some (Pair x y), recursive === *)
   {
-    intros A a x y m r IH Hhead B LDB HReflexive HTransitive EAB outD Hnonil Happrox qD HqD dcost.
+    intros A a x y m r IH Hhead B LDB HReflexive HTransitive EAB outD Happrox qD HqD dcost.
     revert Happrox.
     destruct outD; intro Happrox.
     - invert_clear Happrox.
@@ -2947,8 +2925,7 @@ Proof.
               eapply optimistic_mon.
               {
                 eapply (IH (TupleA B) _ _ _ _ s_out).
-                - discriminate.
-                - exact HsD.
+                - exact HsD. (* discriminate *)
                 - auto.
               }
               {
@@ -3018,7 +2995,6 @@ Proof.
               eapply optimistic_mon.
               {
                 eapply (IH (TupleA B) _ _ _ _ s_out).
-                * discriminate.
                 * exact HsD.
                 * auto.
               }
@@ -3220,11 +3196,7 @@ Proof.
 
   (* === Case 9: q = More (One a) m r, head m = Some (Triple x y z), non-recursive === *)
   {
-    intros A a x y z m r Hhead B LDB HReflexive HTransitive EAB outD Hnonil Happrox qD HqD dcost.
-    (* Now: Hnonil : More ... <> Nil
-            Happrox : outD ≤ exact (More (One x) (map1 chop_triple m) r)
-            qD : T (SeqA B)
-            HqD : qD = Tick.val (ftailD' ...) *)
+    intros A a x y z m r Hhead B LDB HReflexive HTransitive EAB outD Happrox qD HqD dcost.
     revert Happrox.
     destruct outD; intro Happrox.
     - invert_clear Happrox.
