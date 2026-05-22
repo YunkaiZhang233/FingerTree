@@ -21,4 +21,8 @@ src/Setoid.v
 src/ImplicitQueue.v
 src/DemandSemantics.v
 src/SelectionSort.v
-src/Finger.v
+src/FingerCore.v
+src/FingerCons.v
+src/FingerHead.v
+src/FingerTail.v
+src/FingerPhysicist.v
