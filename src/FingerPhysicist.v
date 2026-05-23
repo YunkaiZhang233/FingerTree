@@ -3,7 +3,7 @@
 From Coq Require Import Arith Psatz Relations RelationClasses List.
 From Clairvoyance Require Import Core Approx ApproxM Tick Prod Option.
 From Hammer Require Import Tactics.
-From Clairvoyance Require Import FingerCore FingerCons FingerHead FingerTail.
+From Clairvoyance Require Import FingerCore FingerCons FingerSnoc FingerHead FingerTail.
 
 Import ListNotations.
 
