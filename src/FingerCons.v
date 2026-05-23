@@ -193,35 +193,6 @@ Proof.
               ** intros x13 x14 Hx1314. apply ret_mon. solve_mon.
 Qed.
 
-
-(* Fixpoint fcons {A : Type} (x : A) (s : Seq A) : Seq A :=
-  match s with
-  | Nil              => 
-      let u' := x in
-      Unit u'
-  | Unit y           => 
-      let f' := One x in
-      let m' := Nil in
-      let r' := One y in
-      More f' m' r'
-  | More f m r =>
-      let (f, m) :=
-        match f with
-        | One a => 
-            let f' := Two x a in
-            (f', m)
-        | Two a b => 
-            let f' := Three x a b in
-            (f', m)
-        | Three a b c => 
-            let f' := Two x a in
-            let pbc := Pair b c in
-            let m' := fcons pbc m in
-            (f', m')
-        end in
-      More f m r
-  end. *)
-
 Fixpoint fconsD' (A B : Type) `{Exact A B}
     (x : A) (s : Seq A) (outD : SeqA B)
     : Tick (T (SeqA B)) :=
