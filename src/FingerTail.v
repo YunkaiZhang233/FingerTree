@@ -3009,7 +3009,6 @@ Proof.
               }
           }
           * (* mD_out = Undefined *)
-            Show.
             (* (* fd_m = One (Pair x y), Undefined mD_out *) *)
             invert_clear HmD_out.   (* mD_out = Undefined now substituted *)
             simpl head.

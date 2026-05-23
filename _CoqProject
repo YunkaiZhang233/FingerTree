@@ -23,6 +23,7 @@ src/DemandSemantics.v
 src/SelectionSort.v
 src/FingerCore.v
 src/FingerCons.v
+src/FingerSnoc.v
 src/FingerHead.v
 src/FingerTail.v
 src/FingerPhysicist.v
