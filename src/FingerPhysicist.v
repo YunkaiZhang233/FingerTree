@@ -83,6 +83,7 @@ Section Physicist'sArgument.
   Inductive op : Type :=
   | Empty
   | FCons (x : A)
+  | FSnoc (x : A)
   | Head
   | FTail.
 
@@ -91,6 +92,7 @@ Section Physicist'sArgument.
     fun op args => match op, args with
                 | Empty, [] => [empty]
                 | FCons x, [q] => [fcons x q]
+                | FSnoc x, [q] => [fsnoc q x]
                 | Head, [q] => []  (* Head returns an element, not a queue *)
                 | FTail, [q] => [ftail q]
                 | _, _ => []
@@ -105,6 +107,7 @@ Section Physicist'sArgument.
     fun o args => match o, args with
                | Empty, [] => let! q := emptyA in ret [Thunk q]
                | FCons x, [q] => let! q' := fconsA (exact x) q in ret [Thunk q']
+               | FSnoc x, [q] => let! q' := fsnocA q (exact x) in ret [Thunk q']
                | Head, [q] => let! _ := headA q in ret []
                | FTail, [q] => let! q' := ftailA q in ret [Thunk q']
                | _, _ => ret []
@@ -128,6 +131,11 @@ Section Physicist'sArgument.
       invert_clear H0; try solve [ solve_mon ].
       apply bind_mon.
       + apply fconsA_mon; try solve [ auto ]. reflexivity.
+      + intros. solve_mon.
+    - (* FSnoc *)
+      invert_clear H0; try solve [ solve_mon ].
+      apply bind_mon.
+      + apply fsnocA_mon; try solve [ auto ]. reflexivity.
       + intros. solve_mon.
     - (* Head *)
       invert_clear H0; try solve [ solve_mon ].
@@ -169,6 +177,10 @@ Qed.
           let outD := forceD (bottom_of (exact (fcons x q))) outD in
           let+ qD := fconsD x q outD in
           Tick.ret [qD]
+      | FSnoc x, [q], [outD] =>
+          let outD := forceD (bottom_of (exact (fsnoc q x))) outD in
+          let+ qD := fsnocD q x outD in
+          Tick.ret [qD]          
       | Head, [q], [] =>
           let+ qD := headD q None in
           Tick.ret [qD]
@@ -225,6 +237,27 @@ Qed.
         - apply bottom_is_least. reflexivity.
       }
       eapply fconsD'_approx in Hin.
+      simpl. repeat constructor. exact Hin.
+    }
+    (* FSnoc *)
+    {
+      destruct args as [ | q args' ]; [ intro; simpl; apply bottom_is_least; reflexivity | ].
+      destruct args' as [ | ? ? ]; [ | intro; simpl; apply bottom_is_least; reflexivity ].
+      destruct output as [ | outD output' ];
+      [ intro; simpl; apply bottom_is_least; reflexivity | ].
+      destruct output' as [ | ? ? ];
+      [ | intro; simpl; apply bottom_is_least; reflexivity ].
+      (* args = [q], output = [outD] *)
+      intro Happrox.
+      invert_clear Happrox as [ | ? ? ? ? HoutD _ ].
+      simpl.
+      assert (Hin : forceD (bottom_of (exact (fsnoc q x))) outD `less_defined` exact (fsnoc q x)).
+      {
+        destruct outD as [ outA | ]; simpl.
+        - invert_clear HoutD. assumption.
+        - apply bottom_is_least. reflexivity.
+      }
+      eapply fsnocD_approx in Hin.
       simpl. repeat constructor. exact Hin.
     }
     (* Head: args = [q], output = []. demand returns [headD q None] which must approximate [q]. Uses headD_approx. *)
@@ -313,6 +346,38 @@ Qed.
         }
         {
           rewrite EfconsD in Hcost. simpl in Hcost. lia.
+        }
+    - (* FSnoc *)
+      simpl. intro args0.
+      refine (match args0 with
+              | [] => _
+              | [q] => _
+              | _ => _
+              end); try solve [ invert_clear 1; invert_clear 1; mgo_ ].
+      invert_clear 1.
+      invert_clear H0.
+      intros n xD HxD.
+      (* HxD : {| cost := n; val := xD |} = demand (FSnoc x) [q] [outD] *)
+      unfold demand in HxD. simpl in HxD.
+      rename x0 into outD.
+      destruct (fsnocD q x (forceD (bottom_of (exact (fsnoc q x))) outD))
+        as [n_inner qD] eqn:EfsnocD.
+      simpl in HxD. invert_clear HxD.
+      mgo_.
+      eapply optimistic_mon; [ eapply fsnocD_spec | ].
+      + eapply less_defined_forceD; [ apply bottom_is_least; reflexivity | eassumption ].
+      + rewrite EfsnocD. reflexivity.
+      + intros out cost [Hout Hcost].
+        mgo_.
+        {
+          destruct outD as [ outA | ]; simpl in Hout.
+          - (* outD = Thunk outA *) 
+            constructor; exact Hout.
+          - (* outD = Undefined *) 
+            constructor.
+        }
+        {
+          rewrite EfsnocD in Hcost. simpl in Hcost. lia.
         }
     - (* Head *)
       simpl. intro args0.
@@ -424,6 +489,7 @@ Qed.
     refine (match o, args, output with
             | Empty, [], [_] => _
             | FCons x, [q], [outD] => _
+            | FSnoc x, [q], [outD] => _
             | Head, [q], [] => _
             | FTail, [q], [outD] => _
             | _, _, _ => _
@@ -464,6 +530,37 @@ Qed.
         (* q = More d m r *)
         {
           destruct d as [ a | a b | a b c ]; simpl in EfconsD; invert_clear EfconsD; destruct args; cbn in *; lia.
+        }
+    - (* FSnoc x. *)
+      invert_clear 1 as [ | ? ? ? ? HoutD _ ].
+      intros input cost HxD. unfold demand in HxD. simpl in HxD.
+      destruct (fsnocD q x (forceD (bottom_of (exact (fsnoc q x))) outD))
+        as [cost' qD'] eqn:EfsnocD.
+      simpl in HxD. invert_clear HxD.
+      (* Goal: sumof potential [qD'] + cost' ≤ 3 + sumof potential [outD] *)
+      destruct outD as [ outA | ]; simpl in *.
+      + (* outD = Thunk outA: use fsnocD'_cost *)
+        invert_clear HoutD.
+        rename H into HleA.  (* HleA : Thunk outA ≤ exact (fsnoc q x) *)
+        eapply (fsnocD'_cost q x) in HleA.
+        unfold fsnocD in EfsnocD.
+        rewrite EfsnocD in HleA. simpl in HleA.
+        unfold potential.
+        change (match qD' with Thunk qA => debt qA | Undefined => 0 end) with (debt qD').
+        lia.
+      + (* outD = Undefined *)
+        destruct q as [ | y | d m r ]; simpl in *.
+        (* q = Nil *)
+        {
+          invert_clear EfsnocD. destruct output; cbn in *; lia.
+        }
+        (* q = Unit y *)
+        {
+          invert_clear EfsnocD. destruct output; cbn in *; lia.
+        }
+        (* q = More d m r *)
+        {
+          destruct r as [ a | a b | a b c ]; simpl in EfsnocD; invert_clear EfsnocD; destruct args; cbn in *; lia.
         }
     - (* Head *)
       invert_clear 1.
