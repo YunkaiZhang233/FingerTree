@@ -605,7 +605,6 @@ Qed.
         {
           destruct d as [ a | a b | a b c ].
           - (* d = One a *)
-            Show.
             destruct m as [ | t_m | fd_m m_spine r_d_m ];
             [ destruct r as [ ra | ra rb | ra rb rc ]
             | destruct t_m as [ pa pb | pa pb pc ]
