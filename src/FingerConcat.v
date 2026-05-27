@@ -330,7 +330,7 @@ Proof.
                  --- reflexivity.
 Qed.
 
-Lemma glueA'_mon :
+(* Lemma glueA'_mon :
   forall (A : Type) (q1 : SeqA A),
   forall `{LDA : LessDefined A, !PreOrder LDA}
          (q1' : SeqA A) (as'_ as_ : list (T A)) (q2' q2 : SeqA A),
@@ -340,9 +340,9 @@ Lemma glueA'_mon :
     glueA' q1' as'_ q2' `less_defined` glueA' q1 as_ q2.
 Proof.
   (* TODO: apply (SeqA_ind ...) following ftailA'_mon pattern. *)
-Admitted.
+Admitted. *)
 
-Lemma glueA_mon (A : Type) `{LDA : LessDefined A, PreOrder A LDA}
+(* Lemma glueA_mon (A : Type) `{LDA : LessDefined A, PreOrder A LDA}
     (q1' q1 : T (SeqA A)) (as'_ as_ : list (T A)) (q2' q2 : T (SeqA A)) :
     q1' `less_defined` q1 ->
     Forall2 less_defined as'_ as_ ->
@@ -350,7 +350,7 @@ Lemma glueA_mon (A : Type) `{LDA : LessDefined A, PreOrder A LDA}
     glueA q1' as'_ q2' `less_defined` glueA q1 as_ q2.
 Proof.
   (* TODO: unfold glueA, apply forcing_mon twice, then glueA'_mon. *)
-Admitted.
+Admitted. *)
 
 
 (* ================================================================= *)
@@ -479,37 +479,99 @@ Definition concatD (A : Type) (q1 q2 : Seq A) (outD : SeqA A)
 Arguments glueD' : simpl nomatch.
 
 
+Lemma Seq_ind_poly (P : forall A, Seq A -> Prop) :
+  (forall A, P A Nil) ->
+  (forall A x, P A (Unit x)) ->
+  (forall A f m r, P (Tuple A) m -> P A (More f m r)) ->
+  forall A (s : Seq A), P A s.
+Proof.
+  intros HNil HUnit HMore.
+  fix SELF 2.
+  destruct s.
+  - apply HNil.
+  - apply HUnit.
+  - apply HMore. apply SELF.
+Qed.
+
+
 (* ================================================================= *)
 (** ** Section 5: Cost lemma and corollary                             *)
 (* ================================================================= *)
 
 
 (** Debt of a demand is bounded by twice the depth of its approximand. *)
-Lemma debt_le_2depth (A B : Type) `{LessDefined B, Exact A B}
-    (s : Seq A) (outD : SeqA B) :
-  outD `is_approx` s -> debt outD <= 2 * depth s.
+Lemma debt_le_2depth (A : Type) (s : Seq A) :
+  forall (B : Type) `{LessDefined B, Exact A B} (outD : SeqA B),
+    outD `is_approx` s -> debt outD <= 2 * depth s.
 Proof.
-  (* TODO: structural induction on outD or s.
-     For outD = NilA, UnitA: debt = 0. ✓
-     For outD = MoreA fD mD rD with outD ≤ MoreA fD' mD' rD':
-       debt outD = safe_T fD + Debitable_T mD + safe_T rD ≤ 1 + debt(inner) + 1.
-       By IH: debt(inner) ≤ 2 * depth(inner s).
-       Total: ≤ 2 + 2 * depth(inner s) = 2 * (1 + depth(inner s)) = 2 * depth(More …).
-       ✓ *)
-Admitted.
+  revert s. revert A.
+  apply (Seq_ind_poly
+    (fun (A : Type) (s : Seq A) =>
+      forall (B : Type) `{LessDefined B, Exact A B} (outD : SeqA B),
+        outD `is_approx` s -> debt outD <= 2 * depth s)).
+  - intros A0 B0 LDB0 EAB0 outD Happrox.
+    invert_clear Happrox. simpl. unfold_debt. lia.
+  - intros A0 x B0 LDB0 EAB0 outD Happrox.
+    invert_clear Happrox. simpl. unfold_debt. lia.
+  - intros A0 f m r IHm B0 LDB0 EAB0 outD Happrox.
+    invert_clear Happrox as [| | fD ? mD ? rD ? Hf Hm Hr].
+    unfold_debt.
+    assert (Hsafe_f : T_rect _ safe_DigitA 1 fD <= 1).
+    { 
+      destruct fD as [d|]; simpl; [destruct d; simpl; lia | lia]. 
+    }
+    assert (Hsafe_r : T_rect _ safe_DigitA 1 rD <= 1).
+    { 
+      destruct rD as [d|]; simpl; [destruct d; simpl; lia | lia]. 
+    }
+    assert (Hm_bound : @Debitable_T _ (@Debitable_SeqA (TupleA B0)) mD <= 2 * depth m).
+    {
+      destruct mD as [m_inner | ].
+      - invert_clear Hm as [| ? ? Hm_inner ].
+        simpl. 
+        apply (IHm (TupleA B0) _ _ m_inner Hm_inner).
+      - simpl. lia.
+    }
+    simpl depth.
+    lia.
+Qed.
 
 (** Depth of a foldr-fcons is bounded by depth + list length. *)
+Lemma fcons_depth (A : Type) (x : A) (s : Seq A) :
+  depth (fcons x s) <= depth s + 1.
+Proof.
+  (* Structural induction on s, with case on front digit for the More case. *)
+  revert x.
+  apply (Seq_ind_poly
+    (fun (A : Type) (s : Seq A) =>
+       forall (x : A), depth (fcons x s) <= depth s + 1)); intros.
+  - (* Nil: fcons x Nil = Unit x, depth 0 *)
+    simpl. lia.
+  - (* Unit y: fcons x (Unit y) = More (One x) Nil (One y), depth 1 *)
+    simpl. lia.
+  - (* More f m r *)
+    destruct f as [a | a b | a b c]; simpl.
+    + (* One a: fcons x (More (One a) m r) = More (Two x a) m r, same depth *)
+      lia.
+    + (* Two a b: fcons x (More (Two a b) m r) = More (Three x a b) m r, same depth *)
+      lia.
+    + (* Three a b c: fcons x (More (Three a b c) m r) 
+                   = More (Two x a) (fcons (Pair b c) m) r.
+         New depth = S(depth (fcons (Pair b c) m)).
+         By IH: depth (fcons (Pair b c) m) ≤ depth m + 1.
+         So new depth ≤ S(depth m + 1) = depth m + 2 = depth (More _ m r) + 1. ✓ *)
+      specialize (H (Pair b c)).   (* H is the IH from Seq_ind_poly *)
+      lia.
+Qed.
+
 Lemma foldr_fcons_depth (A : Type) (as_ : list A) (s_2 : Seq A) :
   depth (List.fold_right fcons s_2 as_) <= depth s_2 + List.length as_.
 Proof.
   induction as_ as [| x as' IH]; simpl.
   - lia.
-  - (* depth (fcons x (foldr fcons s_2 as')) ≤ depth (foldr fcons s_2 as') + 1 *)
-    assert (depth (fcons x (List.fold_right fcons s_2 as')) <= 
-            depth (List.fold_right fcons s_2 as') + 1) by admit.
+  - pose proof (fcons_depth x (List.fold_right fcons s_2 as')) as Hf.
     lia.
-Admitted.
-
+Qed.
 (** *** Cost of the demand-side fold-right.
 
     For [as_] of bounded length, the cost is linear in [depth s_2] with
@@ -537,7 +599,7 @@ Proof.
 
     cbv zeta in Hfcons. (* should unfold the cost bound to 2 + debt outD - debt innerD *)
 
-    pose proof (@debt_le_2depth A B _ _ (List.fold_right fcons s_2 (x :: as')) outD Happrox) as Hdebt.
+    pose proof (@debt_le_2depth A (List.fold_right fcons s_2 (x :: as')) B _ _ outD Happrox) as Hdebt.
     
     (* Bound depth(foldr fcons s_2 as') by depth s_2 + |as'| *)
     pose proof (foldr_fcons_depth as' s_2) as Hdepth.
@@ -597,15 +659,102 @@ Lemma foldl_fsnocD'_approx (A B : Type) `{LDB: LessDefined B, !Reflexive LDB, Ex
   outD `is_approx` List.fold_left fsnoc as_ s_1 ->
   Tick.val (foldl_fsnocD' as_ s_1 outD) `is_approx` s_1.
 Proof.
-  (* TODO: induction on as_, using fsnocD'_approx in step case. *)
-Admitted.
+  revert s_1 outD.
+  induction as_ as [| x as' IH]; intros s_1 outD Happrox.
+  
+  - (* Base: foldl_fsnocD' [] s_1 outD = Tick.ret (Thunk outD).
+       Tick.val = Thunk outD.  Need: Thunk outD ≤ exact s_1.
+       outD ≤ exact (fold_left fsnoc [] s_1) = exact s_1.  ✓ *)
+    simpl. constructor. exact Happrox.
+  
+  - (* Step: foldl_fsnocD' (x :: as') s_1 outD =
+       let+ innerD := foldl_fsnocD' as' (fsnoc s_1 x) outD in
+       let innerD_forced := ... in
+       let+ s1D := fsnocD' s_1 x innerD_forced in
+       Tick.ret s1D.
+       
+       Goal: Tick.val (the above) ≤ exact s_1.
+       Tick.val = Tick.val (fsnocD' s_1 x innerD_forced).
+       
+       Strategy: 
+       - Use IH on the inner call: Tick.val(foldl_fsnocD' as' (fsnoc s_1 x) outD) ≤ exact (fsnoc s_1 x).
+       - That gives innerD_forced ≤ exact (fsnoc s_1 x).
+       - Then by fsnocD'_approx: Tick.val(fsnocD' s_1 x innerD_forced) ≤ exact s_1. *)
+    
+    cbn [List.fold_left] in Happrox.
+    (* Happrox : outD ≤ exact (fold_left fsnoc as' (fsnoc s_1 x)) *)
+    
+    specialize (IH (fsnoc s_1 x) outD Happrox).
+    (* IH : Tick.val (foldl_fsnocD' as' (fsnoc s_1 x) outD) ≤ exact (fsnoc s_1 x) *)
+    
+    Local Opaque fsnocD'.
+    cbn [foldl_fsnocD'].
+    
+    set (innerD := Tick.val (foldl_fsnocD' as' (fsnoc s_1 x) outD)) in *.
+    set (innerD_forced := match innerD with
+                          | Thunk q => q
+                          | Undefined => bottom_of (exact (fsnoc s_1 x))
+                          end) in *.
+    
+    assert (Hinner_approx : innerD_forced `is_approx` fsnoc s_1 x).
+    {
+      unfold innerD_forced.
+      destruct innerD as [ q | ] eqn:Eq.
+      - invert_clear IH. assumption.
+      - apply bottom_is_least. reflexivity.
+    }
+    
+    pose proof (@fsnocD'_approx A B _ _ _ s_1 x innerD_forced Hinner_approx) as Hf.
+    
+    (* The body: let+ s1D := fsnocD' s_1 x innerD_forced in Tick.ret s1D.
+       Tick.val of this = Tick.val (Tick.ret (Tick.val (fsnocD' s_1 x innerD_forced)))
+                        = Tick.val (fsnocD' s_1 x innerD_forced).
+       Wait, that's not right.  Let me think.
+       
+       Tick.bind has structure:
+         Tick.val (Tick.bind m f) = Tick.val (f (Tick.val m)).
+       
+       Here: let+ s1D := fsnocD' s_1 x innerD_forced in Tick.ret s1D.
+       This is Tick.bind (fsnocD' s_1 x innerD_forced) (fun s1D => Tick.ret s1D).
+       Tick.val = Tick.val (Tick.ret (Tick.val (fsnocD' s_1 x innerD_forced)))
+                = Tick.val (fsnocD' s_1 x innerD_forced).  ✓
+    *)
+    
+    simpl Tick.val.
+    change (match Tick.val (foldl_fsnocD' as' (fsnoc s_1 x) outD) with
+            | Thunk q => q
+            | Undefined => bottom_of (exact (fsnoc s_1 x))
+            end) with innerD_forced.
+    
+    exact Hf.
+Qed.
 
 
 Lemma fsnoc_depth (A : Type) (s : Seq A) (x : A) :
   depth (fsnoc s x) <= depth s + 1.
 Proof.
-  (* TODO: structural induction on s, case on rear digit. *)
-Admitted.
+  revert x.
+  apply (Seq_ind_poly
+    (fun (A : Type) (s : Seq A) =>
+       forall (x : A), depth (fsnoc s x) <= depth s + 1)); intros.
+  - (* Nil: fsnoc Nil x = Unit x, depth 0 *)
+    simpl. lia.
+  - (* Unit y: fsnoc (Unit y) x = More (One y) Nil (One x), depth 1 *)
+    simpl. lia.
+  - (* More f m r — case on REAR digit r *)
+    destruct r as [a | a b | a b c]; simpl.
+    + (* One a: fsnoc (More f m (One a)) x = More f m (Two a x), same depth *)
+      lia.
+    + (* Two a b: fsnoc (More f m (Two a b)) x = More f m (Three a b x), same depth *)
+      lia.
+    + (* Three a b c: fsnoc (More f m (Three a b c)) x
+                   = More f (fsnoc m (Pair a b)) (Two c x).
+         By IH: depth (fsnoc m (Pair a b)) ≤ depth m + 1.
+         So new depth = S(depth (fsnoc m _)) ≤ S(depth m + 1) = depth m + 2.
+         Compare: depth (More f m (Three a b c)) + 1 = S(depth m) + 1 = depth m + 2. ✓ *)
+      specialize (H (Pair a b)).   (* IH at type Tuple A *)
+      lia.
+Qed.
 
 
 Lemma foldl_fsnocD'_cost (A B : Type) `{LDB: LessDefined B, !Reflexive LDB, Exact A B}
@@ -644,7 +793,7 @@ Proof.
     pose proof (@fsnocD'_cost A B _ _ s_1 x innerD_forced Hinner_approx) as Hfsnoc.
     cbv zeta in Hfsnoc.
     
-    pose proof (@debt_le_2depth A B _ _ (fsnoc s_1 x) innerD_forced Hinner_approx) as Hdebt.
+    pose proof (@debt_le_2depth A (fsnoc s_1 x) B _ _ innerD_forced Hinner_approx) as Hdebt.
     
     pose proof (fsnoc_depth s_1 x) as Hdepth_fsnoc.
     
@@ -689,20 +838,6 @@ Proof.
   simpl in Hlen. lia.
 Qed.
 
-
-Lemma Seq_ind_poly (P : forall A, Seq A -> Prop) :
-  (forall A, P A Nil) ->
-  (forall A x, P A (Unit x)) ->
-  (forall A f m r, P (Tuple A) m -> P A (More f m r)) ->
-  forall A (s : Seq A), P A s.
-Proof.
-  intros HNil HUnit HMore.
-  fix SELF 2.
-  destruct s.
-  - apply HNil.
-  - apply HUnit.
-  - apply HMore. apply SELF.
-Qed.
 
 
 (** *** Main cost theorem: [glueD'] cost is bounded by [c_1 * (d_1 + d_2) + c_2].
@@ -870,7 +1005,7 @@ Proof.
   unfold concatD.
   apply (@glueD'_cost A _ A LDA Hrefl _).
   - exact Happrox.
-  - simpl. apply Nat.le_0_l.
+  - simpl. lia.
 Qed.
 
 
@@ -898,7 +1033,7 @@ Qed.
 
 
 (** *** [glueD'_approx]: the demand approximates the inputs. *)
-Lemma glueD'_approx : forall (A B : Type)
+(* Lemma glueD'_approx : forall (A B : Type)
     `{LDB : LessDefined B, !Reflexive LDB, Exact A B}
     (s1 : Seq A) (as_ : list A) (s2 : Seq A) (outD : SeqA B),
     outD `is_approx` glue s1 as_ s2 ->
@@ -908,11 +1043,11 @@ Lemma glueD'_approx : forall (A B : Type)
     s2D `less_defined` exact s2.
 Proof.
   (* Requires correct unbundle.  Not needed for Claim 1. *)
-Admitted.
+Admitted. *)
 
 
 (** *** [glueD'_exact]: full-demand case. *)
-Lemma glueD'_exact (A B : Type) `{Exact A B}
+(* Lemma glueD'_exact (A B : Type) `{Exact A B}
     (s1 : Seq A) (as_ : list A) (s2 : Seq A) :
   let '(s1D, asD, s2D) := Tick.val (glueD' s1 as_ s2 (exact (glue s1 as_ s2))) in
   s1D = exact s1 /\
@@ -920,14 +1055,14 @@ Lemma glueD'_exact (A B : Type) `{Exact A B}
   s2D = exact s2.
 Proof.
   (* Requires correct unbundle.  Not needed for Claim 1. *)
-Admitted.
+Admitted. *)
 
 
 #[local] Existing Instance Reflexive_LessDefined_T.
 #[local] Existing Instance Reflexive_LessDefined_prodA.
 
 (** *** [glueD'_spec]: clairvoyant dominates demand. *)
-Lemma glueD'_spec (A B : Type) :
+(* Lemma glueD'_spec (A B : Type) :
   forall `{LDB : LessDefined B, !Reflexive LDB, !Transitive LDB, Exact A B}
     (s1 : Seq A) (as_ : list A) (s2 : Seq A) (outD : SeqA B),
     outD `is_approx` glue s1 as_ s2 ->
@@ -938,7 +1073,7 @@ Lemma glueD'_spec (A B : Type) :
       [[ fun out cost => outD `less_defined` out /\ cost <= dcost ]].
 Proof.
   (* Requires correct unbundle + glueA'_mon.  Not needed for Claim 1. *)
-Admitted.
+Admitted. *)
 
 
 (* ================================================================= *)

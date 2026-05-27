@@ -26,5 +26,6 @@ src/FingerCons.v
 src/FingerSnoc.v
 src/FingerHead.v
 src/FingerTail.v
+src/FingerSize.v
 Src/FingerConcat.v
 src/FingerPhysicist.v
