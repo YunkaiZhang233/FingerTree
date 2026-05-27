@@ -25,7 +25,7 @@
 From Coq Require Import Arith Psatz Relations RelationClasses List.
 From Clairvoyance Require Import Core Approx ApproxM Tick Prod Option.
 From Hammer Require Import Tactics.
-From Clairvoyance Require Import FingerCore FingerCons FingerSnoc.
+From Clairvoyance Require Import FingerCore FingerCons FingerSnoc FingerSize.
 
 Import ListNotations.
 Import Tick.Notations.
@@ -1066,9 +1066,97 @@ Admitted. *)
       [[ fun out cost => outD `less_defined` out /\ cost <= dcost ]].
 Proof.
   (* Requires correct unbundle + glueA'_mon.  Not needed for Claim 1. *)
-Admitted. *)
+Admitted. *) 
+
+(* ================================================================= *)
+(** ** Section 5b: Asymptotic [O(log n)] corollary                     *)
+(* ================================================================= *)
+
+(** Convert the [depth]-based cost bound to a [log2 size]-based bound
+    via the size-depth relationship established in [FingerSize.v]. *)
+
+
+(** *** Cost of [concat] in terms of [log_2] of input sizes.
+
+    For nonempty inputs, the cost is bounded by a constant multiple of
+    [log_2 (size q_1) + log_2 (size q_2)] plus an additive constant. *)
+Corollary concatD_cost_logsize (A : Type) `{LDA: LessDefined A, Hrefl: !Reflexive LDA}
+    (q1 q2 : Seq A) (outD : SeqA A) :
+  q1 <> Nil ->
+  q2 <> Nil ->
+  outD `is_approx` concat q1 q2 ->
+  Tick.cost (concatD q1 q2 outD) <=
+    glue_cost_const_1 * (Nat.log2 (size q1) + Nat.log2 (size q2))
+    + glue_cost_const_2.
+Proof.
+  intros Hq1 Hq2 Happrox.
+
+  pose proof (@concatD_cost A LDA Hrefl q1 q2 outD Happrox) as Hcost.
+  pose proof (@depth_log_size A q1 Hq1) as Hlog1.
+  pose proof (@depth_log_size A q2 Hq2) as Hlog2.
+  unfold glue_cost_const_1, glue_cost_const_2 in *.
+  unfold depth in Hcost.
+  unfold depth in Hlog1, Hlog2.
+  nia.
+Qed.
+
+
+(** *** Auxiliary: bound [log_2 (a + b)] when [a, b > 0].
+
+    [log_2 a + log_2 b <= 2 * log_2 (a + b)] (when both are positive).
+    This lets us state the final bound in terms of [a + b], matching
+    the standard [O(log n)] formulation where [n = |q_1| + |q_2|]. *)
+Lemma log2_sum_bound (a b : nat) :
+  0 < a -> 0 < b ->
+  Nat.log2 a + Nat.log2 b <= 2 * Nat.log2 (a + b).
+Proof.
+  intros Ha Hb.
+  assert (Hle1 : a <= a + b) by lia.
+  assert (Hle2 : b <= a + b) by lia.
+  pose proof (Nat.log2_le_mono _ _ Hle1) as Hlog1.
+  pose proof (Nat.log2_le_mono _ _ Hle2) as Hlog2.
+  lia.
+Qed.
+
+
+(** *** Final asymptotic bound: [concat] is [O(log(|q_1| + |q_2|))].
+
+    For nonempty inputs, the cost is bounded by a constant multiple of
+    [log_2 (size q_1 + size q_2)] plus a constant.  This is the
+    asymptotic statement [O(log n)] where [n] is the total input size. *)
+Corollary concatD_cost_O_log_n (A : Type) `{LDA: LessDefined A, Hrefl: !Reflexive LDA}
+    (q1 q2 : Seq A) (outD : SeqA A) :
+  q1 <> Nil ->
+  q2 <> Nil ->
+  outD `is_approx` concat q1 q2 ->
+  Tick.cost (concatD q1 q2 outD) <=
+    2 * glue_cost_const_1 * Nat.log2 (size q1 + size q2)
+    + glue_cost_const_2.
+Proof.
+  intros Hq1 Hq2 Happrox.
+  pose proof (@concatD_cost_logsize A LDA Hrefl q1 q2 outD Hq1 Hq2 Happrox) as Hcost.
+  pose proof (@size_pos A q1 Hq1) as Hpos1.
+  pose proof (@size_pos A q2 Hq2) as Hpos2.
+  pose proof (@log2_sum_bound (size q1) (size q2) Hpos1 Hpos2) as Hlog.
+  unfold glue_cost_const_1, glue_cost_const_2 in *.
+  nia.
+Qed.
+
+
+(** *** Theorem (informal restatement for thesis)
+
+    For any two finite, nonempty finger trees [q_1, q_2 : Seq A]:
+    
+      cost(concat q_1 q_2) ≤ 16 * log_2 (|q_1| + |q_2|) + 60
+    
+    That is, [cost(concat q_1 q_2) = O(log(|q_1| + |q_2|))].
+    
+    This bound is worst-case (not amortized), and holds for every
+    individual invocation of [concat].  The constant 16 = 2 * 8 reflects
+    the looseness of the [log_2 a + log_2 b ≤ 2 * log_2 (a + b)]
+    inequality; a sharper analysis would give 8. *)
 
 
 (* ================================================================= *)
-(** ** End of FingerConcat                                              *)
+(** ** End of additions                                                 *)
 (* ================================================================= *)
