@@ -43,12 +43,6 @@ Set Maximal Implicit Insertion.
 (* ================================================================= *)
 
 (** *** [depth]: structural depth of a sequence's spine. *)
-Fixpoint depth {A : Type} (s : Seq A) : nat :=
-  match s with
-  | Nil        => 0
-  | Unit _     => 0
-  | More _ m _ => S (depth m)
-  end.
 
 (** *** [digitToList]: convert a [Digit A] to a list of 1..3 elements. *)
 Definition digitToList {A : Type} (d : Digit A) : list A :=
@@ -985,7 +979,6 @@ Proof.
         unfold glue_cost_const_1, glue_cost_const_2 in *.
         simpl.
 
-        Show.
         (* Goal: 1 + Tick.cost (glueD' m1 middle m2 m'D_forced) + 0 ≤ 8 * (S(depth m1) + S(depth m2)) + 60 
                 = 8 * depth m1 + 8 * depth m2 + 16 + 60 = 8 * (depth m1 + depth m2) + 76. *)
         (* Destructure the Tick.val to expose the let *)

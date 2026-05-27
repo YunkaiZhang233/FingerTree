@@ -936,3 +936,12 @@ Proof.
     change (T_rect (fun _ : T (DigitA A0) => nat) safe_DigitA 1) with (@safe_T A0) in *.
     lia.
 Qed.
+
+
+(* Depth-related helpers *)
+Fixpoint depth {A : Type} (s : Seq A) : nat :=
+  match s with
+  | Nil        => 0
+  | Unit _     => 0
+  | More _ m _ => S (depth m)
+  end.
