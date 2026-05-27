@@ -1,12 +1,12 @@
 (** * Finger Trees (Claessen 2020, simplified)
- 
+
     Based on: "Finger trees explained anew, and slightly simplified"
     by Koen Claessen (Haskell Symposium 2020).
- 
-    We verify amortized constant-time deque operations (cons, snoc,
-    uncons, unsnoc) using the bidirectional demand semantics and the
-    reverse physicist's method from Xia et al. (ICFP 2024).
- 
+
+    We verify amortized constant-time deque operations ([fcons],
+    [fsnoc], [head], [ftail]) using the bidirectional demand semantics
+    and the reverse physicist's method from Xia et al. (ICFP 2024).
+
     The key data structure is:
 
       Seq A = Nil | Unit A | More (Digit A) (Seq (Tuple A)) (Digit A)
@@ -15,12 +15,13 @@
     The recursive spine stores tuples, doubling (or tripling) the
     element type at each level — the same polymorphic recursion
     pattern as the implicit queue, with an extra Triple case.
- 
+
     Compared to ImplicitQueue.v:
       - Digit range widens from {1,2} to {1,2,3}
       - Both ends support insertion and deletion (deque, not queue)
-      - The amortised argument uses min(|f|-1, |r|-1) for the
-        debit invariant instead of the asymmetric (|f|-1)+(1-|r|)
+      - The amortised argument uses the "safe digit" convention:
+        [Two] contributes 1 to potential, [One]/[Three] contribute 0.
+        See [safe_DigitA] / [Debitable_SeqA] below.
 *)
  
 From Coq Require Import Arith Psatz Relations RelationClasses List.

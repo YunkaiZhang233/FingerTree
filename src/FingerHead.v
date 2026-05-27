@@ -95,7 +95,7 @@ Proof.
   eapply headD'_approx.
 Qed.
 
-(* Cost — trivial, cost is always 1, debt of input ≤ 2 + debt of output *)
+(* Cost — one tick, no recursion. *)
 Lemma headD'_cost : forall (A B : Type) `{Exact A B}
     (s : Seq A) (outD : option (T B)),
     Tick.cost (headD' s outD) <= 1.

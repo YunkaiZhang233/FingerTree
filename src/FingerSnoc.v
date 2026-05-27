@@ -6,12 +6,10 @@
     with front/rear swapped.
 
     See Claessen 2020 §8 for the symmetric treatment of cons/snoc.
-    See [finger_snoc_plan.md] for the implementation plan and the
-    explicit symmetry mapping.
 
     Debit machinery ([Debitable_T], [Debitable_SeqA], [safe_DigitA],
-    [safe_T], and their sub-additivity lemmas) is imported from
-    [FingerCons.v] — NOT redefined here. *)
+    [safe_T], and their sub-additivity lemmas) lives in [FingerCore.v]
+    — NOT redefined here. *)
 
 
 From Coq Require Import Arith Psatz Relations RelationClasses List.
@@ -611,7 +609,7 @@ Qed.
 
 (** Debit machinery ([Debitable_T], [Debitable_SeqA], [safe_DigitA],
     [safe_T], [safe_DigitA_lub_subadditive], [safe_T_lub_subadditive],
-    [debt_SeqA_lub_subadditive]) is imported from [FingerCons.v]. *)
+    [debt_SeqA_lub_subadditive]) lives in [FingerCore.v]. *)
 
 Lemma fsnocD'_cost : forall (A B : Type) `{LessDefined B, Exact A B}
     (s : Seq A) (x : A) (outD : SeqA B),

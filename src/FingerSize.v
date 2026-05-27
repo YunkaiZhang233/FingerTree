@@ -2,14 +2,11 @@
 
     Contains:
     - [Seq_ind_poly]: polymorphic induction principle for [Seq].
-    - [depth]: structural depth of a sequence's spine.
     - [digit_size], [size]: leaf-count metrics.
     - [size_lower_bound]: [2^(depth s) <= size s] for nonempty [s].
     - [depth_log_size]: [depth s <= log2 (size s)] for nonempty [s].
 
-    This file is a leaf dependency for complexity proofs.  It depends
-    only on [FingerCore.v] (for [Seq], [Digit], [Tuple]) and on Coq's
-    standard library for [Nat.log2] and related arithmetic.
+    [depth] itself is defined in [FingerCore.v].
 
     Future work: a tighter analysis using [log_3] is possible (since
     [Tuple]s can hold 3 elements), but [log_2] is sufficient for the
@@ -163,31 +160,3 @@ Qed.
 (* ================================================================= *)
 (** ** End of FingerSize                                                *)
 (* ================================================================= *)
-
-
-(** *** Notes for [FingerConcat] integration
-
-    After importing [FingerSize.v], the corollary [concatD_cost_logsize]
-    can be stated:
-
-    [[
-    Corollary concatD_cost_logsize (A : Type) `{LessDefined A}
-        (q1 q2 : Seq A) (outD : SeqA A) :
-      q1 <> Nil -> q2 <> Nil ->
-      outD `is_approx` concat q1 q2 ->
-      Tick.cost (concatD q1 q2 outD) <=
-        glue_cost_const_1 * (Nat.log2 (size q1) + Nat.log2 (size q2))
-        + glue_cost_const_2.
-    Proof.
-      intros Hq1 Hq2 Happrox.
-      pose proof (concatD_cost _ _ _ Happrox) as Hcost.
-      pose proof (depth_log_size q1 Hq1) as Hlog1.
-      pose proof (depth_log_size q2 Hq2) as Hlog2.
-      nia.
-    Qed.
-    ]]
-
-    Note that [depth] is currently defined in [FingerConcat.v]; if you
-    want to use [FingerSize]'s [depth], either remove the duplicate
-    from [FingerConcat] or rename one of them to avoid collision.
-    Recommendation: keep [depth] only in [FingerSize.v]. *)

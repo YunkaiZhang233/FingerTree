@@ -20,7 +20,7 @@ Set Maximal Implicit Insertion.
 
 From Clairvoyance Require Import Core.
 
-(** ===== ftail (Section 5.5) ===== *)
+(** ===== ftail ===== *)
 
 (* Drop the first element of a [Tuple].  Used in [ftail]'s Triple-head
    branch to convert [Triple x y z] into [Pair y z] without recursing
@@ -210,9 +210,8 @@ Qed.
       worst path) rather than factored through a [ftailA_cascade]
       helper.  Factoring would require either mutual recursion with
       [ftailA'] (because the Pair-head case must recurse) or threading
-      [ftailA'] as a higher-order parameter.  We judged that inlining
-      keeps proofs flatter despite the depth.  Reconsider in Phase D if
-      [ftailD']'s proofs balloon.
+      [ftailA'] as a higher-order parameter.  Inlining keeps proofs
+      flatter despite the depth.
     - In the Pair-head sub-cases the recursion is on the same value [m]
       from [forcing mD (fun m => ...)], not on [m]'s inner spine.  This
       mirrors the pure [tail m] recursion in the corresponding case of
@@ -845,7 +844,7 @@ Proof.
 Qed.
 Opaque ftailD'_val_more.
 (* ================================================================= *)
-(** *** Phase E: Big proofs for [ftailD'].
+(** *** Big proofs for [ftailD'].
 
     Cost target: K=3 (matches [fconsD'_cost]'s effective bound and the
     physicist's argument's budget convention).  K=2 would suffice for the
@@ -1185,7 +1184,7 @@ Qed.
 
 
 (* ----------------------------------------------------------------- *)
-(** **** Main theorem 1: [ftailD'_approx]
+(** **** Main theorem: [ftailD'_approx]
 
     The input demand returned by [ftailD'] is a valid approximation of [s]. *)
 (* ----------------------------------------------------------------- *)
@@ -1663,11 +1662,10 @@ Lemma ftailD_approx (A : Type) `{LDA : LessDefined A, !Reflexive LDA}
 Proof.
   intros. eapply ftailD'_approx; eauto.
 Qed.
-(* Note: change to Qed once ftailD'_approx is closed. *)
 
 
 (* ----------------------------------------------------------------- *)
-(** **** Main theorem 2: [ftailD'_cost] (amortized cost bound). *)
+(** **** Main theorem: [ftailD'_cost] (amortized cost bound). *)
 (* ----------------------------------------------------------------- *)
 
 
@@ -2476,7 +2474,6 @@ Lemma ftailD_cost (A : Type) `{LessDefined A} (q : Seq A) (outD : SeqA A) :
 Proof.
   intros. apply ftailD'_cost. auto.
 Qed.
-(* Note: change to Qed once ftailD'_cost is closed. *)
 
 
 
@@ -2585,7 +2582,7 @@ Qed.
 
 
 (* ----------------------------------------------------------------- *)
-(** **** Main theorem 4: [ftailD'_spec] (clairvoyance equivalence). *)
+(** **** Main theorem: [ftailD'_spec] (clairvoyance equivalence). *)
 (* ----------------------------------------------------------------- *)
 
 
@@ -3577,5 +3574,4 @@ Lemma ftailD_spec (A : Type) `{LDA : LessDefined A, !Reflexive LDA, !Transitive 
 Proof.
   intros. apply ftailD'_spec; auto.
 Qed.
-(* Note: change to Qed once ftailD'_spec is closed. *)
 

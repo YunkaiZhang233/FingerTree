@@ -6,21 +6,22 @@
     Unlike [fcons]/[fsnoc]/[ftail] (amortized constant), [glue] is
     **worst-case** logarithmic.  No new debit machinery is needed:
     [Debitable_T], [Debitable_SeqA], [safe_DigitA], [safe_T], and their
-    sub-additivity lemmas are imported from [FingerCore.v].
+    sub-additivity lemmas live in [FingerCore.v].
 
     Structure:
-      Section 1: Pure helpers ([depth], [digitToList], [toTuples]).
+      Section 1: Pure helpers ([digitToList], [toTuples]).
       Section 2: Pure [glue] function + custom induction principle.
       Section 3: Clairvoyant [glueA'] + monotonicity helpers.
-      Section 4: Demand function [glueD'] (Claim 1 scope only).
+      Section 4: Demand function [glueD'].
       Section 5: Cost lemma [glueD'_cost] and corollary [concatD_cost].
       Section 6: Stubs for future work ([glueD'_approx], [glueD'_spec]).
 
-    SCOPE NOTE: this file is currently set up for **Claim 1 only**
-    (worst-case [O(log n)] cost bound on [concat], proved as a standalone
-    lemma).  The [unbundle] helper is stubbed for cost-only analysis;
-    a correct implementation is required for [glueD'_approx] / [glueD'_spec].
-    See [claim1_design.md] for the scope rationale.  *)
+    SCOPE: this file proves the **worst-case [O(log n)] cost bound** on
+    [concat] (Claim 1 of the thesis) as a standalone result.  The
+    [unbundle] helper is stubbed for cost-only analysis; a correct
+    implementation is required for [glueD'_approx] / [glueD'_spec],
+    which remain admitted as future work.  See [PROGRESS.md] and
+    [claim1_proof.md] in the repository root for the rationale.  *)
 
 From Coq Require Import Arith Psatz Relations RelationClasses List.
 From Clairvoyance Require Import Core Approx ApproxM Tick Prod Option.
@@ -41,8 +42,6 @@ Set Maximal Implicit Insertion.
 (* ================================================================= *)
 (** ** Section 1: Pure helpers                                         *)
 (* ================================================================= *)
-
-(** *** [depth]: structural depth of a sequence's spine. *)
 
 (** *** [digitToList]: convert a [Digit A] to a list of 1..3 elements. *)
 Definition digitToList {A : Type} (d : Digit A) : list A :=
@@ -1006,12 +1005,13 @@ Qed.
 
     For all finite [q1, q2 : Seq A]:
       Tick.cost (concatD q_1 q_2 outD) = O(log(|q_1| + |q_2|)).
-    
+
     Proof: by [concatD_cost], cost ≤ 8 * (depth q_1 + depth q_2) + 60.
-    By the size-depth relation [depth q ≤ log_3 |q|], we have
-      depth q_1 + depth q_2 ≤ log_3 |q_1| + log_3 |q_2| = log_3 (|q_1| * |q_2|).
-    For nontrivial inputs, this is bounded by 2 * log_3 (|q_1| + |q_2|).
-    Hence cost = O(log(|q_1| + |q_2|)). *)
+    By the size-depth relation [depth q ≤ log_2 |q|] (see
+    [depth_log_size] in [FingerSize.v]),
+      depth q_1 + depth q_2 ≤ log_2 |q_1| + log_2 |q_2|.
+    For nonempty inputs, [log_2 a + log_2 b ≤ 2 * log_2 (a + b)],
+    so cost = O(log(|q_1| + |q_2|)). *)
 
 
 (* ================================================================= *)
@@ -1021,8 +1021,8 @@ Qed.
 (** These are placeholders for the full demand-side machinery, NOT
     needed for Claim 1.  Each requires a correct [unbundle], and the
     spec additionally requires extensive proofs analogous to
-    [ftailD'_spec].  Left as future work; see [claim1_design.md] for
-    scope rationale. *)
+    [ftailD'_spec].  Left as future work; see [claim1_proof.md] and
+    [PROGRESS.md] in the repository root for scope rationale. *)
 
 
 (** *** [glueD'_approx]: the demand approximates the inputs. *)

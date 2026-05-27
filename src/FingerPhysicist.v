@@ -120,7 +120,7 @@ Section Physicist'sArgument.
   Proof using A.
     unfold WfEval. destruct o, vs; repeat constructor.
     all: simpl; destruct vs; repeat constructor.
-  Qed. (* fill in case-by-case *)
+  Qed.
   #[export] Existing Instance wf_eval.
 
   (* --- monotonicity of exec --- *)
@@ -470,11 +470,11 @@ Qed.
   Hint Resolve sumof_potential_bottom_of : core.
 
   (* --- Physicist'sArgumentD: the core amortized inequality.
- 
-     Structure mirrors ImplicitQueue.v lines 1696–1726, using `refine` with a
-     wildcard fallback that the generic tactic discharges. The fallback
-     handles ill-shaped arg/output lists (length mismatches) by reducing
-     them to bottom-of computations.
+
+     Mirrors the [physicist's_argumentD] proof in ImplicitQueue.v:
+     [refine] with a wildcard fallback that the generic tactic
+     discharges. The fallback handles ill-shaped arg/output lists
+     (length mismatches) by reducing them to bottom-of computations.
   *)
   Theorem physicist's_argumentD :
     forall `{LDA : LessDefined A, !PreOrder LDA, LBA : Lub A, @LubLaw A LBA LDA},
