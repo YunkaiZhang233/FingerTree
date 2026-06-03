@@ -420,9 +420,28 @@ Fixpoint rvc {M A} (s : MSeq M A) : nat :=
   end.
 
 Lemma lvc_le_depth {M A} (s : MSeq M A) : lvc s <= S (depth s).
-Proof. Admitted.   (* M7a: induction on s. *)
+Proof.
+  revert A s. fix SELF 2.
+  destruct s as [|x|vm pr m sf].
+  - simpl. lia.
+  - simpl. lia.
+  - destruct pr as [a|a b|a b c]; simpl.
+    + specialize (SELF (MTuple M A) m). lia.
+    + lia.
+    + lia.
+Qed.
+
 Lemma rvc_le_depth {M A} (s : MSeq M A) : rvc s <= S (depth s).
-Proof. Admitted.
+Proof. 
+    revert A s. fix SELF 2.
+    destruct s as [|x|vm pr m sf]. 
+    - simpl. lia.
+    - simpl. lia.
+    - destruct sf as [a|a b|a b c]; simpl.
+      + specialize (SELF (MTuple M A) m). lia.
+      + lia.
+      + lia.
+Qed.
 
 (** [viewLD] cost is exactly the internal potential. *)
 Lemma viewLD_cost {M} {A B} `{Monoid M} `{Exact A B} (md : A -> M) (dflt : A)
