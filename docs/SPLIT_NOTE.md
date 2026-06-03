@@ -23,9 +23,14 @@ character of the bound:
 - `glueD'_cost`'s bound is **independent of the output demand `outD`** — that is the
   worst-case statement.
 
-The split cost lemmas have the identical shape:
-`Tick.cost (… ) ≤ split_c1 * depth t + split_c2`, `outD`-independent, then
-`depth_log_size` (`FingerSize.v`) gives `O(log n)`.
+The split cost lemmas are `outD`-independent; `depth_log_size` (`FingerSize.v`) then
+gives `O(log n)`:
+- `indexD_cost`     : `Tick.cost (indexD …)     ≤ split_c1 * depth t + split_c2`;
+- `splitTreeD_cost` : `Tick.cost (splitTreeD …) ≤ (split_c1 + 2) * depth t + (split_c2 + 3)`.
+
+The `+2`/`+3` on `splitTreeD_cost` is **structural** (see §7): the top-level
+reconstruction adds `lvc m + rvc m ≈ 2·depth`, so split's leading constant is strictly
+larger than index's — no single constant serves both.
 
 **Why a new type.** `Seq`/`SeqA` caches no measure, so `splitTree` reading `‖m‖` would
 be `O(size)` even with `O(1)` `⊕`. `FingerSplit.v` introduces a **measure-annotated**
@@ -44,24 +49,32 @@ priority queue (interval monoid) and an ordered sequence (last-value monoid).
   `deepL`/`deepR` always refill to a near digit of size ≥ 2, so a cascade only runs
   through disjoint runs of `One`-front spine levels. Formalised with the internal
   potential `lvc`/`rvc` (one-step view cost): per-step amortised cost is constant, sum
-  is `O(depth)`.
+  is `O(depth)`. **As built (§7): the mechanized `splitTreeD` is a *cost scaffold*** — its
+  recursion passes `(Undefined,Undefined,Undefined)`, flattening reconstruction to the
+  top level, so this telescoping is **not** exercised; flat `deepLD_cost ≤ lvc m` /
+  `deepRD_cost ≤ rvc m` close M8. The telescoping is the correct argument for the
+  *faithful* demand function and is **relocated to M9**.
 
-**Milestones (dependency order).**
-- **M1** metrics: port `size_lower_bound`/`depth_log_size`/`size_pos` from
-  `FingerSize.v` to `MSeq` (mechanical rename; tuples still hold ≥ 2 elements).
-- **M2** cost-scope approx infra: `Exact`/`BottomOf`/`LessDefined` for `MTupleA`/`MSeqA`
-  (the order laws / `Lub` are correctness scope — omit).
-- **M3** pure ops (done in skeleton): `splitDigit`, `viewL`/`viewR`, `deepL`/`deepR`,
-  `splitTree`, `index`.
-- **M4** `splitDigit` facts + the near-digit-size property of `deepL`/`deepR` (empty/2/3
-  residual ⇒ near digit size ≥ 2; only a singleton makes a `One`). M7 rests on this.
-- **M5** demand functions: `viewLD`/`viewRD`/`deepLD`/`deepRD`, `splitTreeD`, `indexD`.
-- **M6** `indexD_cost` — descent bound; **closes random access**.
-- **M7** reconstruction telescoping (`lvc`/`rvc`, the per-step amortised inequality).
-- **M8** `splitTreeD_cost` = M6 descent + two M7 reconstructions.
-- **M9** correctness (`split_correct`, `*_approx`/`*_spec`) — admitted future work, as
-  `FingerConcat.v` admits `glueD'_approx`/`glueD'_spec`. Split contract (Leroy):
-  `¬ p mzero ∧ p (measureSeq md t)`.
+**Milestones (dependency order) — cost scope now complete (`Qed`); see §5.**
+- **M1** metrics: ✅ ported `MSeq_ind_poly`, `MSeq_nil_dec`, `size_lower_bound`,
+  `size_pos`, `depth_log_size` from `FingerSize.v` (mechanical rename; tuples still ≥ 2).
+- **M2** cost-scope approx infra: ✅ `Exact`/`BottomOf`/`LessDefined` for `MTupleA`/`MSeqA`
+  (innermost-first; order laws / `Lub` omitted — correctness scope).
+- **M3** pure ops: ✅ `splitDigit`, `viewL`/`viewR`, `deepL`/`deepR`, `splitTree`, `index`.
+- **M4** near-digit-size property: folded into `lvc`/`rvc` + `lvc/rvc_le_depth`; returns
+  as an explicit obligation for M9's per-level reconstruction.
+- **M5** demand functions: ✅ `viewLD`/`viewRD` (`Fixpoint`), `deepLD`/`deepRD`/`toTreeD`,
+  `splitTreeD`, `indexD` — real definitions (no longer `Parameter`s), dual-typed `{A B}`.
+- **M6** `indexD_cost` (+ `index_O_log_n`): ✅ descent bound; **closes random access, faithful**.
+- **M7** reconstruction telescoping: **reframed** — the scaffold doesn't need it; flat
+  `deepLD_cost`/`deepRD_cost` (from `viewLD_cost`/`viewRD_cost`) replace it. Telescoping → M9.
+- **M8** `splitTreeD_cost` (+ `split_O_log_n`): ✅ M6 descent + flat reconstruction;
+  constant `(split_c1+2)·depth t + (split_c2+3)`. **Scaffold result.**
+- **M9** correctness + faithful split — **the remaining work**: the *faithful* `splitTreeD`
+  (thread real half-demands into the recursion; reconstruct per level on the recursive
+  halves), its cost via the M7 telescoping (now load-bearing), then `*_approx`/`*_spec`
+  and `split_correct` with the Leroy contract `¬ p mzero ∧ p (measureSeq md t)`. Admitted
+  future work, as `FingerConcat.v` admits `glueD'_approx`/`glueD'_spec`.
 
 (Full pen-and-paper proof, if kept in the repo, lives in the companion design doc.)
 
@@ -132,17 +145,26 @@ don't delete imports.
 
 ## 5. Scope — what is *intentionally* incomplete
 
-`FingerSplit.v` is **cost-scope**, mirroring `FingerConcat.v`. Leave these alone unless
-explicitly told to close them:
-- `Parameter`s: `viewLD`, `viewRD`, `deepLD`, `deepRD`.
-- `Admitted` lemmas: `lvc_le_depth`, `rvc_le_depth`, `viewLD_cost`, `viewRD_cost`,
-  `deepL_reconstruction_cost`, `deepR_reconstruction_cost` (**M7**), `indexD_cost`
-  (**M6**), `splitTreeD_cost` (**M8**), `index_O_log_n`, `split_O_log_n`.
-- The commented-out correctness block.
+`FingerSplit.v` is **cost-scope**, mirroring `FingerConcat.v`. **The cost scope is now
+complete — zero admits.** Every cost lemma is at `Qed`; the only remaining incomplete
+item is the M9 correctness block.
 
-Everything else must genuinely elaborate: all type defs, `Monoid`/instances, every pure
-`Definition`/`Fixpoint`, the `Exact`/`BottomOf`/`LessDefined` instances, and
-`splitTreeD`/`indexD`.
+- **Closed (`Qed`):** `lvc_le_depth`, `rvc_le_depth`, `viewLD_cost`, `viewRD_cost`,
+  `toTreeD_cost`, `deepLD_cost`, `deepRD_cost`, `indexD_cost` (**M6**), `splitTreeD_cost`
+  (**M8**), `MSeq_ind_poly`, `MSeq_nil_dec`, `size_lower_bound`, `size_pos`,
+  `depth_log_size` (**M1**), `index_O_log_n`, `split_O_log_n`.
+- **All demand functions are real definitions** (no longer `Parameter`s): `viewLD`/`viewRD`
+  (`Fixpoint`), `deepLD`/`deepRD`/`toTreeD` (`Definition`), `splitTreeD`, `indexD`.
+- **The two `deep*_reconstruction_cost` telescoping lemmas were removed** — the scaffold
+  doesn't use them (§7); they return with the faithful function in M9.
+- **Still intentionally incomplete (M9, future):** the commented-out correctness block —
+  `indexD_approx`, `splitTreeD_spec`/`_approx`, `split_correct`. Admitted exactly as
+  `FingerConcat.v` admits `glueD'_approx`/`glueD'_spec`. **Do not close without being asked.**
+
+The integrity guardrails (§6) continue to apply to all M9 work: do not weaken a spec
+to make it provable, and do not let the *scaffold* `splitTreeD` quietly become the
+claimed faithful function — M9 means writing the faithful demand function, not relabeling
+the scaffold.
 
 ---
 
@@ -234,3 +256,53 @@ they elaborate at `B := A` (via `Exact_id`) without it: the inductive proofs rec
 `B := MTupleA M B`, so the IH only applies to a `B`-general statement. This is precisely
 why `glueD'_cost` is stated `(A B : Type) `{Exact A B}`. Do not specialise these
 statements to a fixed `B`.
+
+### [DONE] M1 metrics ported to `MSeq`
+`MSeq_ind_poly` (hand `fix`; motive `forall A, MSeq M A -> Prop` with `M` fixed across
+the spine), `MSeq_nil_dec`, `size_lower_bound`, `size_pos`, `depth_log_size` — verbatim
+port of `FingerSize.v` (tuples still ≥ 2 elements; the extra `vm` field is
+size/depth-irrelevant). Unblocks `index_O_log_n`/`split_O_log_n`.
+
+### [DONE] M5 demand functions promoted from `Parameter` to real definitions
+`viewLD`/`viewRD` are `Fixpoint`s (one `Tick.tick` per visited `MMore`; recurse into the
+middle on a `One` front — the cascade). `deepLD`/`deepRD`/`toTreeD` are `Definition`s,
+**cost 0 when the output demand is `Undefined`** — this is what zeroes reconstruction
+along the `index` descent. All dual-typed `{A B} `{Exact A B}` (Error 2) and
+`simpl nomatch`. The *returned input demands* are M9 placeholders (cf. `unbundle`); only
+the cost is proved here.
+
+### [KEY FINDING] mechanized `splitTreeD` is a cost scaffold → M7 reframed, M8 constant bumped
+`splitTreeD`'s middle branch recurses with `(Undefined, Undefined, Undefined)`, so the
+descent demands nothing of the recursive halves and **every reconstruction below the top
+level is the cost-0 branch.** Reconstruction fires only at the top call, as one
+`viewLD`/`viewRD` on the *original* `m` (`deepLD md dflt [] m sf rD`, not on a
+recursively-built half). Consequences:
+- **M7 telescoping is not exercised.** `deepLD_cost ≤ lvc m` / `deepRD_cost ≤ rvc m` are
+  flat (one view each, via `viewLD_cost`/`viewRD_cost`); the two `deep*_reconstruction_cost`
+  lemmas were **removed**.
+- **M8 is not an induction.** Since the recursive call *is* `indexD` on `m`,
+  `splitTreeD_cost` = `indexD_cost` (descent) + `deepLD_cost` + `deepRD_cost` +
+  `lvc/rvc_le_depth`, all `lia`.
+- **M8's constant is strictly larger than M6's:** `(split_c1 + 2)·depth t + (split_c2 + 3)`.
+  The top reconstruction pays `lvc m + rvc m ≈ 2·depth m` in full, so split's leading
+  coefficient is `split_c1 + 2`. No single constant serves both index and split — the
+  `+2` is structural, not a tuning artifact (raising `split_c1` scales both sides).
+- **Faithfulness caveat.** The scaffold does *not* model the pure `splitTree`'s per-level
+  reconstruction, so it would not satisfy `splitTreeD_spec`; full split's result is
+  therefore **scaffold-level**. **Random access is unaffected and faithful** (`index`
+  genuinely demands nothing of the halves), so M6 is a complete result. The §4.2
+  telescoping argument is correct and **relocated to M9's faithful function**, where
+  `lvc`/`rvc` finally earn their place.
+
+Not a guardrail violation: this is a *reported* scaffold. No statement was weakened to be
+vacuous — M6/M8 are honest `outD`-independent bounds; the only limitation is that M8
+bounds a scaffold, and it is flagged here and in the design doc. M9 must write the
+faithful function, not relabel this one.
+
+### [FIXED] `splitTreeD_cost` `MUnit` case stuck before `lia`
+**Symptom.** `S (Tick.cost (let '(_, xD, _) := outD in Tick.ret (Thunk (MUnitA xD)))) <= 27`
+— opaque `outD` blocks the `let` from reducing, so `Tick.cost` stays an atom and `lia`
+gives up (`27 = split_c2 + 3`, since `depth (MUnit _) = 0`).
+**Fix.** Destruct the demand first: `destruct outD as [[? xD] ?]; simpl; lia` (goal
+collapses to `1 <= 27`). Same root cause as the earlier `MUnitA` stuck goal — an opaque
+tuple demand blocking reduction.
