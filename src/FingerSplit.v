@@ -380,13 +380,39 @@ Fixpoint viewRD {M} {A B} `{Monoid M} `{Exact A B} (md : A -> M) (dflt : A)
   end.
 Arguments viewRD : simpl nomatch.
 (* deepLD r m sf outD : cost 0 if outD = Undefined; else one [viewLD] (if
-   the residual is empty) + O(1). *)
-Parameter deepLD : forall {M} {A B} `{Monoid M} `{Exact A B},
-  (A -> M) -> A -> list A -> MSeq M (MTuple M A) -> Digit A ->
-  T (MSeqA M B) -> Tick (T (MSeqA M (MTupleA M B))).
-Parameter deepRD : forall {M} {A B} `{Monoid M} `{Exact A B},
-  (A -> M) -> A -> Digit A -> MSeq M (MTuple M A) -> list A ->
-  T (MSeqA M B) -> Tick (T (MSeqA M (MTupleA M B))).
+   the residual is empty) + O(1).  Promoted from Parameter so [indexD_cost]
+   can compute: at [Undefined] the body reduces to [Tick.ret Undefined]
+   (cost 0), zeroing the reconstruction along the [index] descent.  The
+   returned input demand is an M9 placeholder. *)
+Definition deepLD {M} {A B} `{Monoid M} `{Exact A B} (md : A -> M) (dflt : A)
+    (r : list A) (m : MSeq M (MTuple M A)) (sf : Digit A) (outD : T (MSeqA M B))
+    : Tick (T (MSeqA M (MTupleA M B))) :=
+  match outD with
+  | Undefined => Tick.ret Undefined
+  | Thunk _ =>
+      match r with
+      | [] => let+ _ := viewLD (A := MTuple M A) (B := MTupleA M B)
+                          measureMTuple (MPair mzero dflt dflt) m Undefined in
+              Tick.ret Undefined
+      | _  => Tick.ret Undefined
+      end
+  end.
+Arguments deepLD : simpl nomatch.
+
+Definition deepRD {M} {A B} `{Monoid M} `{Exact A B} (md : A -> M) (dflt : A)
+    (pr : Digit A) (m : MSeq M (MTuple M A)) (l : list A) (outD : T (MSeqA M B))
+    : Tick (T (MSeqA M (MTupleA M B))) :=
+  match outD with
+  | Undefined => Tick.ret Undefined
+  | Thunk _ =>
+      match l with
+      | [] => let+ _ := viewRD (A := MTuple M A) (B := MTupleA M B)
+                          measureMTuple (MPair mzero dflt dflt) m Undefined in
+              Tick.ret Undefined
+      | _  => Tick.ret Undefined
+      end
+  end.
+Arguments deepRD : simpl nomatch.
 
 (** [splitTreeD]: one [Tick.tick] per visited [MMore]; reconstruction
     gated by the half-demands [lD]/[rD]; recurse on the middle.  When
@@ -551,7 +577,33 @@ Proof. Admitted.
 Theorem indexD_cost {M} {A B} `{Monoid M} `{Exact A B} (md : A -> M) (dflt : A)
     (p : M -> bool) (i : M) (t : MSeq M A) (xD : T B) :
   Tick.cost (indexD md dflt p i t xD) <= split_c1 * depth t + split_c2.
-Proof. Admitted.   (* §4.1 *)
+Proof.
+  unfold indexD.
+  generalize dependent xD.
+  generalize dependent t.
+  generalize dependent i.
+  generalize dependent p.
+  generalize dependent dflt.
+  generalize dependent md.
+  generalize dependent B.
+  generalize dependent A.
+  fix SELF 8.
+  intros A B HE md dflt p i t xD.
+  destruct t as [|x|vm pr m sf].
+  - simpl. unfold split_c1, split_c2. lia.
+  - simpl. unfold split_c1, split_c2. lia.
+  - simpl depth.
+    simpl. unfold split_c1, split_c2.
+    simpl depth.
+    destruct (p (i <+> measureDigit md pr)).
+      * simpl Tick.cost. unfold split_c1, split_c2. lia.
+      * destruct (p (i <+> measureDigit md pr <+> vm)).
+        -- specialize (SELF (MTuple M A) (MTupleA M B) _
+                     measureMTuple (MPair mzero dflt dflt) p
+                     (i <+> measureDigit md pr) m Undefined).
+           simpl Tick.cost. unfold split_c1, split_c2 in *. lia.
+        -- simpl Tick.cost. unfold split_c1, split_c2. lia.
+Qed.
 
 (** *** M8 — full split: descent (M6) + two reconstructions (M7). *)
 Theorem splitTreeD_cost {M} {A B} `{Monoid M} `{Exact A B} (md : A -> M) (dflt : A)
