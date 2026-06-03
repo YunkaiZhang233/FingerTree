@@ -425,12 +425,12 @@ Lemma rvc_le_depth {M A} (s : MSeq M A) : rvc s <= S (depth s).
 Proof. Admitted.
 
 (** [viewLD] cost is exactly the internal potential. *)
-Lemma viewLD_cost {M A} `{Monoid M} (md : A -> M) (dflt : A)
-    (t : MSeq M A) (outD : T (MSeqA M A)) :
+Lemma viewLD_cost {M} {A B} `{Monoid M} `{Exact A B} (md : A -> M) (dflt : A)
+    (t : MSeq M A) (outD : T (MSeqA M B)) :
   Tick.cost (viewLD md dflt t outD) <= lvc t.
 Proof. Admitted.   (* M7b *)
-Lemma viewRD_cost {M A} `{Monoid M} (md : A -> M) (dflt : A)
-    (t : MSeq M A) (outD : T (MSeqA M A)) :
+Lemma viewRD_cost {M} {A B} `{Monoid M} `{Exact A B} (md : A -> M) (dflt : A)
+    (t : MSeq M A) (outD : T (MSeqA M B)) :
   Tick.cost (viewRD md dflt t outD) <= rvc t.
 Proof. Admitted.
 
@@ -441,13 +441,13 @@ Proof. Admitted.
     Phrased as a bound on the total reconstruction cost incurred along the
     descent path.  Proof: the physicist's argument of §4.2 — three cases
     on the residual ([], singleton, size-2/3), each amortised ≤ K+1. *)
-Lemma deepL_reconstruction_cost {M A} `{Monoid M} (md : A -> M) (dflt : A)
-    (r : list A) (m : MSeq M (MTuple M A)) (sf : Digit A) (rD : T (MSeqA M A)) :
+Lemma deepL_reconstruction_cost {M} {A B} `{Monoid M} `{Exact A B} (md : A -> M) (dflt : A)
+    (r : list A) (m : MSeq M (MTuple M A)) (sf : Digit A) (rD : T (MSeqA M B)) :
   Tick.cost (deepLD md dflt r m sf rD) + lvc (deepL md dflt r m sf) <=
     (split_c1) + lvc m.
 Proof. Admitted.   (* the per-step amortised inequality; sum gives O(depth) *)
-Lemma deepR_reconstruction_cost {M A} `{Monoid M} (md : A -> M) (dflt : A)
-    (pr : Digit A) (m : MSeq M (MTuple M A)) (l : list A) (lD : T (MSeqA M A)) :
+Lemma deepR_reconstruction_cost {M} {A B} `{Monoid M} `{Exact A B} (md : A -> M) (dflt : A)
+    (pr : Digit A) (m : MSeq M (MTuple M A)) (l : list A) (lD : T (MSeqA M B)) :
   Tick.cost (deepRD md dflt pr m l lD) + rvc (deepR md dflt pr m l) <=
     (split_c1) + rvc m.
 Proof. Admitted.
@@ -456,14 +456,14 @@ Proof. Admitted.
     With both halves [Undefined], every [toTreeD]/[deepLD]/[deepRD] costs
     0, so each level is O(1) and the recursion is one level shallower;
     [glueD'_cost]-shaped induction via the polymorphic principle. *)
-Theorem indexD_cost {M A} `{Monoid M} (md : A -> M) (dflt : A)
-    (p : M -> bool) (i : M) (t : MSeq M A) (xD : T A) :
+Theorem indexD_cost {M} {A B} `{Monoid M} `{Exact A B} (md : A -> M) (dflt : A)
+    (p : M -> bool) (i : M) (t : MSeq M A) (xD : T B) :
   Tick.cost (indexD md dflt p i t xD) <= split_c1 * depth t + split_c2.
 Proof. Admitted.   (* §4.1 *)
 
 (** *** M8 — full split: descent (M6) + two reconstructions (M7). *)
-Theorem splitTreeD_cost {M A} `{Monoid M} (md : A -> M) (dflt : A)
-    (p : M -> bool) (i : M) (t : MSeq M A) (outD : SplitDmd M A) :
+Theorem splitTreeD_cost {M} {A B} `{Monoid M} `{Exact A B} (md : A -> M) (dflt : A)
+    (p : M -> bool) (i : M) (t : MSeq M A) (outD : SplitDmd M B) :
   Tick.cost (splitTreeD md dflt p i t outD) <= split_c1 * depth t + split_c2.
 Proof. Admitted.   (* §4.2: combine indexD_cost with deep*_reconstruction_cost *)
 
@@ -472,15 +472,15 @@ Proof. Admitted.   (* §4.2: combine indexD_cost with deep*_reconstruction_cost 
 (* ================================================================= *)
 
 (** Needs [depth_log_size]/[size_pos] ported to [MSeq] (M1). *)
-Corollary index_O_log_n {M A} `{Monoid M} (md : A -> M) (dflt : A)
-    (p : M -> bool) (i : M) (t : MSeq M A) (xD : T A) :
+Corollary index_O_log_n {M} {A B} `{Monoid M} `{Exact A B} (md : A -> M) (dflt : A)
+    (p : M -> bool) (i : M) (t : MSeq M A) (xD : T B) :
   t <> MNil ->
   Tick.cost (indexD md dflt p i t xD)
     <= split_c1 * Nat.log2 (size t) + split_c2.
 Proof. Admitted.
 
-Corollary split_O_log_n {M A} `{Monoid M} (md : A -> M) (dflt : A)
-    (p : M -> bool) (i : M) (t : MSeq M A) (outD : SplitDmd M A) :
+Corollary split_O_log_n {M} {A B} `{Monoid M} `{Exact A B} (md : A -> M) (dflt : A)
+    (p : M -> bool) (i : M) (t : MSeq M A) (outD : SplitDmd M B) :
   t <> MNil ->
   Tick.cost (splitTreeD md dflt p i t outD)
     <= split_c1 * Nat.log2 (size t) + split_c2.

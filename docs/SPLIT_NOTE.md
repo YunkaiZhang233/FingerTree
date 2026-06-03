@@ -199,7 +199,7 @@ Inductive LessDefined_MTupleA {M A} `{LessDefined A} : LessDefined (MTupleA M A)
 class — keep mirroring the `DigitA`→`TupleA`→`SeqA` instance ordering/laws from
 `FingerCore.v`.
 
-### [OPEN] Error 2 — `splitTreeD` conflates the pure and approximation element types
+### [FIXED] Error 2 — `splitTreeD` conflates the pure and approximation element types
 **Symptom** (compiling `splitTreeD`, middle/`p vm_t` branch):
 ```
 The term "mD" has type "T (MSeqA M (MTuple M A))"
@@ -213,7 +213,7 @@ element `MTuple M A` and its approximation `MTupleA M B` differ, so the recursiv
 `T (MSeqA M (MTuple M A))`, which cannot fill `MMoreA`'s middle slot
 `T (MSeqA M (MTupleA M B))`.
 
-**Fix.** Mirror `glueD'` (`FingerConcat.v`), `Fixpoint glueD' (A B : Type) `{Exact A B}
+**Fix.** Mirror `glueD'` (`FingerConcat.v`, `Fixpoint glueD' (A B : Type) `{Exact A B}
 …`): parameterise **every demand-side definition** by the pure element `A` AND its
 approximation `B`, with `Exact A B`. Input over `A`; output demand and returned demand
 over `B`. The recursive call shifts both — `A := MTuple M A`, `B := MTupleA M B` (the
@@ -227,4 +227,10 @@ let+ mD := splitTreeD (A := MTuple M A) (B := MTupleA M B)
 Apply the dual `{A B} `{Exact A B}` to `viewLD`/`viewRD`/`deepLD`/`deepRD`,
 `splitTreeD`, `indexD`, and to the cost-lemma statements (demands become `B`-typed;
 `lvc`/`rvc` and all bounds are over the pure tree and unchanged). Concrete random access
-instantiates `B := A` via `Exact_id`. After it compiles, mark `[FIXED]`.
+instantiates `B := A` via `Exact_id`.
+
+**Takeaway for M6/M8.** The cost-lemma *statements* must stay general in `B` even though
+they elaborate at `B := A` (via `Exact_id`) without it: the inductive proofs recurse at
+`B := MTupleA M B`, so the IH only applies to a `B`-general statement. This is precisely
+why `glueD'_cost` is stated `(A B : Type) `{Exact A B}`. Do not specialise these
+statements to a fixed `B`.
