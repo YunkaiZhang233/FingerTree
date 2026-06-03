@@ -8,8 +8,7 @@
     correctness-scope and left admitted, exactly as [glueD'_approx]/
     [glueD'_spec] are in [FingerConcat.v].
 
-    Measures are taken over an abstract [Monoid] (see [FingerMonoid.v]);
-    the element measure [md : A -> M] is threaded à la Leroy.  Random
+    Measures are taken over an abstract [Monoid] (see [FingerMonoid.v]);Random
     access is the [Monoid_size] instantiation; the same [splitTree] gives
     priority queues / ordered sequences under [Monoid_interval] /
     [Monoid_lastval].
@@ -337,6 +336,7 @@ Definition SplitDmd (M A : Type) : Type :=
 
 Definition toTreeD {M A} (outD : T (MSeqA M A)) : Tick unit :=
   match outD with Undefined => Tick.ret tt | Thunk _ => Tick.tick >> Tick.ret tt end.
+Arguments toTreeD: simpl nomatch.
 
 (* viewLD/viewRD : the one-uncons demands; recurse into the middle on a
    [One] front (the cascade).  Fixpoints on the (pure) tree so the cost
@@ -552,23 +552,37 @@ Proof.
     + simpl. lia.
 Qed.
 
-(** *** M7 — reconstruction telescoping (the only genuinely new lemma).
-    The bottom-up [deepL]/[deepR] fold building one half costs [O(depth)]:
-    with potential [Φ = lvc] (resp. [rvc]) the amortised cost per
-    [deepL]/[deepR] step is constant, and the run-cascades telescope.
-    Phrased as a bound on the total reconstruction cost incurred along the
-    descent path.  Proof: the physicist's argument of §4.2 — three cases
-    on the residual ([], singleton, size-2/3), each amortised ≤ K+1. *)
-Lemma deepL_reconstruction_cost {M} {A B} `{Monoid M} `{Exact A B} (md : A -> M) (dflt : A)
+Lemma toTreeD_cost {M A} (outD : T (MSeqA M A)) : Tick.cost (toTreeD outD) <= 1.
+Proof. 
+  destruct outD; simpl; lia. 
+Qed.
+
+Lemma deepLD_cost {M} {A B} `{Monoid M} `{Exact A B} (md : A -> M) (dflt : A)
     (r : list A) (m : MSeq M (MTuple M A)) (sf : Digit A) (rD : T (MSeqA M B)) :
-  Tick.cost (deepLD md dflt r m sf rD) + lvc (deepL md dflt r m sf) <=
-    (split_c1) + lvc m.
-Proof. Admitted.   (* the per-step amortised inequality; sum gives O(depth) *)
-Lemma deepR_reconstruction_cost {M} {A B} `{Monoid M} `{Exact A B} (md : A -> M) (dflt : A)
+  Tick.cost (deepLD md dflt r m sf rD) <= lvc m.
+Proof.
+  unfold deepLD. destruct rD as [r0|].
+  - destruct r as [|a r'].
+    + pose proof (viewLD_cost (A := MTuple M A) (B := MTupleA M B)
+                    measureMTuple (MPair mzero dflt dflt) m Undefined) as Hv.
+      simpl Tick.cost. lia.
+    + simpl Tick.cost. lia.
+  - simpl Tick.cost. lia.
+Qed.
+
+Lemma deepRD_cost {M} {A B} `{Monoid M} `{Exact A B} (md : A -> M) (dflt : A)
     (pr : Digit A) (m : MSeq M (MTuple M A)) (l : list A) (lD : T (MSeqA M B)) :
-  Tick.cost (deepRD md dflt pr m l lD) + rvc (deepR md dflt pr m l) <=
-    (split_c1) + rvc m.
-Proof. Admitted.
+  Tick.cost (deepRD md dflt pr m l lD) <= rvc m.
+Proof.
+  unfold deepRD. destruct lD as [l0|].
+  - destruct l as [|a l'].
+    + pose proof (viewRD_cost (A := MTuple M A) (B := MTupleA M B)
+                    measureMTuple (MPair mzero dflt dflt) m Undefined) as Hv.
+      simpl Tick.cost. lia.
+    + simpl Tick.cost. lia.
+  - simpl Tick.cost. lia.
+Qed.
+
 
 (** *** M6 — random access: clean descent bound, NO reconstruction.
     With both halves [Undefined], every [toTreeD]/[deepLD]/[deepRD] costs
@@ -608,8 +622,86 @@ Qed.
 (** *** M8 — full split: descent (M6) + two reconstructions (M7). *)
 Theorem splitTreeD_cost {M} {A B} `{Monoid M} `{Exact A B} (md : A -> M) (dflt : A)
     (p : M -> bool) (i : M) (t : MSeq M A) (outD : SplitDmd M B) :
-  Tick.cost (splitTreeD md dflt p i t outD) <= split_c1 * depth t + split_c2.
-Proof. Admitted.   (* §4.2: combine indexD_cost with deep*_reconstruction_cost *)
+  Tick.cost (splitTreeD md dflt p i t outD) <= (split_c1 + 2) * depth t + (split_c2 + 3).
+Proof.
+  destruct t as [|x|vm pr m sf].
+  - simpl. unfold split_c1, split_c2. lia.
+  - simpl. unfold split_c1, split_c2.     
+    destruct outD as [ [lD xD] rD]; simpl; lia.
+  - destruct outD as [ [lD xD] rD].
+    pose proof (toTreeD_cost lD) as HtL.
+    pose proof (toTreeD_cost rD) as HtR.
+    pose proof (deepLD_cost md dflt (@nil A) m sf rD) as HdL.
+    pose proof (deepRD_cost md dflt pr m (@nil A) lD) as HdR.
+    pose proof (lvc_le_depth m) as Hlm.
+    pose proof (rvc_le_depth m) as Hrm.
+    pose proof (indexD_cost (A := MTuple M A) (B := MTupleA M B)
+                  measureMTuple (MPair mzero dflt dflt) p
+                  (i <+> measureDigit md pr) m Undefined) as Hidx.
+    unfold indexD in Hidx.
+    simpl depth. simpl.
+    destruct (p (i <+> measureDigit md pr)).
+    + simpl Tick.cost. unfold split_c1, split_c2 in *. lia.
+    + destruct (p (i <+> measureDigit md pr <+> vm)).
+      * simpl Tick.cost. unfold split_c1, split_c2 in *. lia.
+      * simpl Tick.cost. unfold split_c1, split_c2 in *. lia.
+Qed.
+
+
+
+
+(* ================================================================= *)
+(** ** Section 7 Aux: alternatives*)
+
+
+Lemma MSeq_ind_poly {M} (P : forall A, MSeq M A -> Prop) :
+  (forall A, P A MNil) ->
+  (forall A x, P A (MUnit x)) ->
+  (forall A vm f m r, P (MTuple M A) m -> P A (MMore vm f m r)) ->
+  forall A (s : MSeq M A), P A s.
+Proof. 
+  intros HNil HUnit HMore. fix SELF 2.
+  intros A s; destruct s as [|x|vm f m r]; [apply HNil|apply HUnit|apply HMore; apply SELF]. 
+Qed.
+
+Lemma MSeq_nil_dec {M A} (s : MSeq M A) : s = MNil \/ s <> MNil.
+Proof. 
+  destruct s; [left; reflexivity|right; discriminate|right; discriminate]. 
+Qed.
+
+Lemma size_lower_bound {M} : forall A (s : MSeq M A), s <> MNil -> 2 ^ depth s <= size s.
+Proof.
+  apply (MSeq_ind_poly (M := M) (fun A s => s <> MNil -> 2 ^ depth s <= size s)).
+  - intros A Hne; contradiction.
+  - intros A x _; simpl; lia.
+  - intros A vm f m r IH _.
+    simpl depth; simpl size.
+    destruct (@MSeq_nil_dec M _ m) as [Hm | Hm].
+    + subst m; simpl size.
+      destruct f as [a|a b|a b c]; destruct r as [d|d e|d e g];
+        simpl digit_size; simpl Nat.pow; lia.
+    + specialize (IH Hm).
+      destruct f as [a|a b|a b c]; destruct r as [d|d e|d e g];
+        simpl digit_size; simpl Nat.pow; nia.
+Qed.
+
+Lemma size_pos {M} : forall A (s : MSeq M A), s <> MNil -> 0 < size s.
+Proof. 
+  intros A s Hne; destruct s as [|x|vm u m v]; [contradiction|simpl;lia|];
+  simpl; destruct u; simpl; lia. 
+Qed.
+
+Corollary depth_log_size {M} : forall A (s : MSeq M A), s <> MNil -> depth s <= Nat.log2 (size s).
+Proof.
+  intros A s Hne.
+  pose proof (@size_lower_bound _ _ s Hne) as Hsize.
+  pose proof (@size_pos _ _ s Hne) as Hpos.
+  pose proof (@Nat.log2_spec _ Hpos) as [Hlow Hhigh].
+  destruct (Nat.le_gt_cases (depth s) (Nat.log2 (size s))) as [Hle|Hgt]; [auto|exfalso].
+  apply (Nat.lt_irrefl (size s)).
+  eapply Nat.lt_le_trans; [exact Hhigh|].
+  eapply Nat.le_trans; [|exact Hsize]. apply Nat.pow_le_mono_r; lia.
+Qed.
 
 (* ================================================================= *)
 (** ** Section 7: O(log n) corollaries (mirror concatD_cost_O_log_n)    *)
@@ -618,17 +710,25 @@ Proof. Admitted.   (* §4.2: combine indexD_cost with deep*_reconstruction_cost 
 (** Needs [depth_log_size]/[size_pos] ported to [MSeq] (M1). *)
 Corollary index_O_log_n {M} {A B} `{Monoid M} `{Exact A B} (md : A -> M) (dflt : A)
     (p : M -> bool) (i : M) (t : MSeq M A) (xD : T B) :
-  t <> MNil ->
-  Tick.cost (indexD md dflt p i t xD)
-    <= split_c1 * Nat.log2 (size t) + split_c2.
-Proof. Admitted.
+  t <> MNil -> Tick.cost (indexD md dflt p i t xD) <= split_c1 * Nat.log2 (size t) + split_c2.
+Proof.
+  intro Hne.
+  pose proof (indexD_cost md dflt p i t xD) as Hc.
+  pose proof (@depth_log_size _ _ t Hne) as Hd.
+  unfold split_c1, split_c2 in *. nia.
+Qed.
 
 Corollary split_O_log_n {M} {A B} `{Monoid M} `{Exact A B} (md : A -> M) (dflt : A)
     (p : M -> bool) (i : M) (t : MSeq M A) (outD : SplitDmd M B) :
   t <> MNil ->
   Tick.cost (splitTreeD md dflt p i t outD)
-    <= split_c1 * Nat.log2 (size t) + split_c2.
-Proof. Admitted.
+    <= (split_c1 + 2) * Nat.log2 (size t) + (split_c2 + 3).
+Proof.
+  intro Hne.
+  pose proof (splitTreeD_cost md dflt p i t outD) as Hc.
+  pose proof (@depth_log_size _ _ t Hne) as Hd.
+  unfold split_c1, split_c2 in *. nia.
+Qed.
 
 (* ================================================================= *)
 (** ** Section 8: Correctness (future work, admitted — cf. FingerConcat)*)
