@@ -339,12 +339,46 @@ Definition toTreeD {M A} (outD : T (MSeqA M A)) : Tick unit :=
   match outD with Undefined => Tick.ret tt | Thunk _ => Tick.tick >> Tick.ret tt end.
 
 (* viewLD/viewRD : the one-uncons demands; recurse into the middle on a
-   [One] front (the cascade).  Stated as Fixpoints on the (pure) tree so
-   the cost recurrence matches [lvc]/[rvc]. *)
-Parameter viewLD : forall {M} {A B} `{Monoid M} `{Exact A B},
-  (A -> M) -> A -> MSeq M A -> T (MSeqA M B) -> Tick (T (MSeqA M B)).
-Parameter viewRD : forall {M} {A B} `{Monoid M} `{Exact A B},
-  (A -> M) -> A -> MSeq M A -> T (MSeqA M B) -> Tick (T (MSeqA M B)).
+   [One] front (the cascade).  Fixpoints on the (pure) tree so the cost
+   recurrence matches [lvc]/[rvc] exactly: one [Tick.tick] per visited
+   [MMore], plus a recursive call when the touched digit is [One].  The
+   returned input demand is [Undefined] for now (M9 placeholder) — what
+   we prove here is the cost bound, which is independent of [outD]. *)
+Fixpoint viewLD {M} {A B} `{Monoid M} `{Exact A B} (md : A -> M) (dflt : A)
+    (t : MSeq M A) (outD : T (MSeqA M B)) {struct t} : Tick (T (MSeqA M B)) :=
+  Tick.tick >>
+  match t with
+  | MNil    => Tick.ret Undefined
+  | MUnit _ => Tick.ret Undefined
+  | MMore _ pr m _ =>
+      match pr with
+      | One _ =>
+          let+ _ := viewLD (A := MTuple M A) (B := MTupleA M B)
+                      measureMTuple (MPair mzero dflt dflt) m Undefined in
+          Tick.ret Undefined
+      | Two _ _     => Tick.ret Undefined
+      | Three _ _ _ => Tick.ret Undefined
+      end
+  end.
+Arguments viewLD : simpl nomatch.
+
+Fixpoint viewRD {M} {A B} `{Monoid M} `{Exact A B} (md : A -> M) (dflt : A)
+    (t : MSeq M A) (outD : T (MSeqA M B)) {struct t} : Tick (T (MSeqA M B)) :=
+  Tick.tick >>
+  match t with
+  | MNil    => Tick.ret Undefined
+  | MUnit _ => Tick.ret Undefined
+  | MMore _ _ m sf =>
+      match sf with
+      | One _ =>
+          let+ _ := viewRD (A := MTuple M A) (B := MTupleA M B)
+                      measureMTuple (MPair mzero dflt dflt) m Undefined in
+          Tick.ret Undefined
+      | Two _ _     => Tick.ret Undefined
+      | Three _ _ _ => Tick.ret Undefined
+      end
+  end.
+Arguments viewRD : simpl nomatch.
 (* deepLD r m sf outD : cost 0 if outD = Undefined; else one [viewLD] (if
    the residual is empty) + O(1). *)
 Parameter deepLD : forall {M} {A B} `{Monoid M} `{Exact A B},
@@ -447,11 +481,50 @@ Qed.
 Lemma viewLD_cost {M} {A B} `{Monoid M} `{Exact A B} (md : A -> M) (dflt : A)
     (t : MSeq M A) (outD : T (MSeqA M B)) :
   Tick.cost (viewLD md dflt t outD) <= lvc t.
-Proof. Admitted.   (* M7b *)
+Proof.
+  generalize dependent outD.
+  generalize dependent t.
+  generalize dependent dflt.
+  generalize dependent md.
+  generalize dependent B.
+  generalize dependent A.
+  fix SELF 6.
+  intros A B HE md dflt t outD.
+  destruct t as [|x|vm pr m sf].
+  - simpl. lia.
+  - simpl. lia.
+  - destruct pr as [a|a b|a b c].
+    + simpl.
+      specialize (SELF (MTuple M A) (MTupleA M B) _
+                       measureMTuple (MPair mzero dflt dflt) m Undefined).
+      lia.
+    + simpl. lia.
+    + simpl. lia.
+Qed.
+
 Lemma viewRD_cost {M} {A B} `{Monoid M} `{Exact A B} (md : A -> M) (dflt : A)
     (t : MSeq M A) (outD : T (MSeqA M B)) :
   Tick.cost (viewRD md dflt t outD) <= rvc t.
-Proof. Admitted.
+Proof.
+  generalize dependent outD.
+  generalize dependent t.
+  generalize dependent dflt.
+  generalize dependent md.
+  generalize dependent B.
+  generalize dependent A.
+  fix SELF 6.
+  intros A B HE md dflt t outD.
+  destruct t as [|x|vm pr m sf].
+  - simpl. lia.
+  - simpl. lia.
+  - destruct sf as [a|a b|a b c].
+    + simpl.
+      specialize (SELF (MTuple M A) (MTupleA M B) _
+                       measureMTuple (MPair mzero dflt dflt) m Undefined).
+      lia.
+    + simpl. lia.
+    + simpl. lia.
+Qed.
 
 (** *** M7 — reconstruction telescoping (the only genuinely new lemma).
     The bottom-up [deepL]/[deepR] fold building one half costs [O(depth)]:
