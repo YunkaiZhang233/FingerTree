@@ -1,4 +1,4 @@
-name: LazyAnalysis
+name: Build & Proof-Check
 
 on: [push, pull_request]
 
@@ -18,7 +18,7 @@ jobs:
       - uses: actions/checkout@v3
       - uses: coq-community/docker-coq-action@v1
         with:
-          opam_file: 'coq-lazy-analysis.opam'
+          opam_file: 'coq-finger-tree.opam'
           custom_image: ${{ matrix.image }}
 
 

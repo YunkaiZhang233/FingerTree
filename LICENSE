@@ -1,4 +1,8 @@
+Copyright 2026, Yunkai Zhang
+  (finger-tree formalisation: src/Finger*.v and docs/)
+
 Copyright 2021, Yao Li, Li-yao Xia, Stephanie Weirich
+  (the vendored Clairvoyance library / ICFP 2024 artifact: all other src/*.v)
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of
 this software and associated documentation files (the "Software"), to deal in

@@ -4,26 +4,30 @@
 
 MEng thesis project formally verifying the amortised time complexity of **Claessen's 2020 simplified finger tree** (a persistent deque) using the **bidirectional demand semantics** framework from Xia et al. (ICFP 2024).
 
-**Goal**: prove that `cons`, `head`, and `tail` (with the symmetric `snoc`, `last`, `init` left as an explicit thesis note) run in **O(1) amortised time**, even under persistent use, using the Rocq Prover (Coq).
+**Goal**: prove that `cons`, `snoc`, `head`, and `tail` run in **O(1) amortised time**, even under persistent use, using the Rocq Prover (Coq). This goal is **met and machine-checked** (no `Admitted`/`admit` on the core path).
 
-**Current status (close to thesis deadline):**
+**Current status:**
 
-- ✅ Pure data structure and operations (Section 1)
-- ✅ Approximation types & full lattice infrastructure (Section 2)
-- ✅ Demand semantics for `cons` (`fconsD'`) with full proofs (`_approx`, `_spec`, `_cost`)
-- ✅ Demand semantics for `head` (`headD'`) with full proofs
-- ✅ Sub-additivity of `debt` for `SeqA` (`debt_SeqA_lub_subadditive`)
-- ✅ Physicist's argument framework over `op = Empty | FCons A | Head`: all instances (`eval`, `exec`, `demand`, `potential`, `budget`, `pd`, `cd`, `well_defined_potential`, `physicist's_argumentD`, `amortized_cost`) closed
-- ⏳ **NEXT**: `tail` (full scope, including the One-front cascade through Pair/Triple)
-- ❌ **Out of thesis scope**: `snoc`/`unsnoc`/`last`/`init` — symmetric arguments described in thesis only
+- ✅ Pure data structure and operations (`FingerCore.v`)
+- ✅ Approximation types & full lattice infrastructure (`FingerCore.v`)
+- ✅ Demand semantics for `fcons` (`fconsD'`) — full proofs (`_approx`, `_spec`, `_cost`) — `FingerCons.v`
+- ✅ Demand semantics for `fsnoc` (`fsnocD'`) — full proofs — `FingerSnoc.v` (symmetric dual of cons)
+- ✅ Demand semantics for `head` (`headD'`) — full proofs — `FingerHead.v`
+- ✅ Demand semantics for `ftail` (`ftailD'`) — full proofs, including the One-front cascade through Pair/Triple — `FingerTail.v`
+- ✅ Sub-additivity of `debt` for `SeqA` (`debt_SeqA_lub_subadditive`) — `FingerCore.v`
+- ✅ Physicist's argument over `op = Empty | FCons A | FSnoc A | Head | FTail`: all instances (`eval`, `exec`, `demand`, `potential`, `budget`, `pd`, `cd`, `well_defined_potential`, `physicist's_argumentD`, `amortized_cost`) closed — `FingerPhysicist.v`. Uniform `budget = 4`.
+- ✅ Size/depth metrics + `O(log n)` foundations (`size_lower_bound`, `depth_log_size`) — `FingerSize.v`
+- 🟡 **Secondary (cost-only)**: `concat`/`glue` (`FingerConcat.v`) and measure-annotated `index`/`split` (`FingerSplit.v`, `FingerMonoid.v`) — **worst-case O(log n) COST bounds fully proven**; their functional-correctness lemmas (`_approx`/`_spec`) are `Admitted` as scoped future work (5 in `FingerConcat.v`, 2 in `FingerSplit.v`).
+- ❌ **Out of thesis scope**: `last`/`init` — symmetric to `head`/`tail`, described in thesis only.
 
 ## Key References
 
 - **Data structure**: Koen Claessen, "Finger trees explained anew, and slightly simplified" (Haskell Symposium 2020).
 - **Verification framework**: Li-yao Xia et al., "Story of Your Lazy Function's Life: A Bidirectional Demand Semantics for Mechanized Cost Analysis of Lazy Programs" (ICFP 2024).
 - **Persistent analysis confirmation**: Anton Lorenzen, "Lightweight Testing of Persistent Amortized Time Complexity in the Credit Monad" (2025) — verifies via QuickCheck that Claessen's `tail` has O(1) amortised cost in the persistent setting, using credit passing. Confirms our pen-and-paper analysis is correct.
+- **Measure-annotated trees**: Hinze & Paterson, "Finger trees: a simple general-purpose data structure" (JFP 16(2), 2006); X. Leroy, "Persistent data structures", lecture 5 (2023). Basis for `FingerMonoid.v` / `FingerSplit.v`.
 - **Template file**: `ImplicitQueue.v` from the ICFP 2024 artifact. This project mirrors its structure closely.
-- **Library**: The `Clairvoyance` Rocq library (the artifact's library).
+- **Library**: The `Clairvoyance` Rocq library (the artifact's library), vendored under `src/` (everything except `src/Finger*.v`).
 
 ## The Data Structure
 
@@ -39,12 +43,12 @@ Key invariants:
 - `Digit` holds 1–3 elements at the fingers. `Two` is **safe**; `One` and `Three` are **dangerous**.
 - `Tuple` holds 2–3 elements in the spine.
 - The middle field is **polymorphic recursion** (each level stores tuples of the level below) and **lazy** (wrapped in `T`).
-- `tail`'s cascading case (front digit `One`) has a three-way branch: empty spine / spine head `Pair x y` (recurse) / spine head `Triple x _ _` (chop via `map1`, **no recursion**). The chop/`map1` shortcut for `Triple` is Claessen's key insight.
+- `tail`'s cascading case (front digit `One`) has a three-way branch: empty spine / spine head `Pair x y` (recurse) / spine head `Triple x _ _` (chop via `map1`, **no recursion**). The chop/`map1` shortcut for `Triple` is Claessen's key insight. `chop_triple` and `map1` live at `FingerTail.v:29` and `FingerTail.v:38`.
 
 ## Verification Patterns Learned (these all work; consult before re-deriving)
 
 ### Polymorphic-recursion induction
-- Single-argument lemmas use the custom `SeqA_ind` (line ~587). Its `MoreA` case provides a `TR1`-wrapped IH at `TupleA A`.
+- Single-argument lemmas use the custom `SeqA_ind` (`FingerCore.v:590`). Its `MoreA` case provides a `TR1`-wrapped IH at `TupleA A`. (`FingerSize.v` also defines `Seq_ind_poly` for the *pure* `Seq`.)
 - Two-argument lemmas (antisymmetry, sub-additivity) require `fix SELF n` with `A` universally quantified **inside** the statement, with explicit `@` when composing through smaller types.
 
 ### Mixed-monad bind notation footgun
@@ -58,10 +62,10 @@ If a clairvoyant function `fA : T (SeqA A) → M ...` deterministically returns 
 This makes `fA_mon`'s `Undefined` case trivial via `solve_mon`.
 
 ### Demand for queries with `outD = None`
-For `head s` / `tail s` on non-`Nil` `s`, even when the user demands nothing of the output (`outD = None` or `outD ≤ NilA`), the demand on `s` is NOT `bottom` — it must be a **structured shape** showing that the operation forced the spine top and the digit constructor. Returning `bottom` breaks `CvDemand` (because `headA Undefined = forcing Undefined _ = bottom`, which has no optimistic witness). See `headD'`'s revised design at lines ~1708–1730 of `Finger.v`.
+For `head s` / `tail s` on non-`Nil` `s`, even when the user demands nothing of the output (`outD = None` or `outD ≤ NilA`), the demand on `s` is NOT `bottom` — it must be a **structured shape** showing that the operation forced the spine top and the digit constructor. Returning `bottom` breaks `CvDemand` (because `headA Undefined = forcing Undefined _ = bottom`, which has no optimistic witness). See `headD'`'s design at `FingerHead.v:43`.
 
 ### Budget tightness under safe-convention
-Convention: `safe_DigitA` = 0 for One/Three, 1 for Two; undefined-default = 1. Worst-case input demand has potential `1 (TwoA) + 1 (Undefined rear) = 2`. Plus 1 cost = 3. So `budget = 3` is tight for operations that touch this case. Current budgets: Empty/FCons/Head all = 3. **Tail will need budget 3 too** by the analysis in `TAIL_ANALYSIS.md`.
+Convention: `safe_DigitA` = 0 for One/Three, 1 for Two; undefined-default = 1 (`FingerCore.v:828`). Worst-case input demand has potential `1 (TwoA) + 1 (Undefined rear) = 2`; plus 1 cost = 3. The physicist's argument uses a **uniform `budget = 4`** across all operations (`FingerPhysicist.v`), which comfortably covers every case (cons/snoc/head/tail) under a single constant.
 
 ### `pose proof` stalls on let-laden lemma types
 We observed `pose proof (fconsD'_cost_bottom x q)` stalling due to elaboration of `let inM := ... in let cost := ... in ...`-style lemma types. Workarounds:
@@ -70,58 +74,67 @@ We observed `pose proof (fconsD'_cost_bottom x q)` stalling due to elaboration o
 - Inline the case analysis if the lemma is only used once (we did this for `fconsD'_cost_bottom` in the `physicist's_argumentD` FCons-Undefined branch).
 
 ### Sub-additivity of `debt`
-`debt_SeqA_lub_subadditive` (line ~1480) decomposes:
+`debt_SeqA_lub_subadditive` (`FingerCore.v:886`) decomposes:
 - `safe_DigitA_lub_subadditive` (digit level).
 - `safe_T_lub_subadditive` (T-lifted digit).
 - Main lemma via `SeqA_ind`, with the `MoreA` case combining all three plus the spine IH.
 
-Reusable for any future operation's `well_defined_potential` — `tail` will not need to re-prove this.
+Reusable for any operation's `well_defined_potential` — `cons`/`snoc`/`head`/`tail` all share this single proof (it lives once in `FingerCore.v`; the other files do not re-prove it).
 
-## File Structure (Finger.v)
+## File Structure
+
+The development is split across ten `src/Finger*.v` files (it was originally one monolithic `Finger.v`; that file no longer exists). Build/dependency order is fixed in `_CoqProject`.
 
 ```
-Lines    Content
-~30      Imports
-~130–230 Section 1: Pure data structure & operations
-~240–815 Section 2: Approximation types & lattice
-~820–1090 Section 3: fcons / fconsA / fconsD' (definition)
-~1090–1670 Section 4: fcons proofs (approx, spec, cost) + sub-additivity (1445–1535)
-~1697–1840 Section 5: head / headA / headD'
-~1845–1895 Section 6: empty / forceD
-~1917–2266 Section 7: Physicist's Argument
+File                  Content
+FingerCore.v          Pure data structure, approximation types & lattice,
+                      debt machinery (safe_DigitA / safe_T / debt_SeqA),
+                      SeqA_ind, sub-additivity lemmas, shared tactics
+FingerCons.v          fcons / fconsA / fconsD' + proofs (approx, spec, cost)
+FingerSnoc.v          fsnoc / fsnocA / fsnocD' + proofs (symmetric dual of cons)
+FingerHead.v          head / headA / headD' + proofs
+FingerTail.v          ftail / ftailA / ftailD' + proofs; chop_triple, map1
+FingerSize.v          Seq_ind_poly, digit_size/size/depth, size_lower_bound,
+                      depth_log_size (O(log n) foundations)
+FingerConcat.v        concat / Claessen's glue; worst-case O(log n) cost bound
+FingerMonoid.v        measure-monoid interface (size / interval / last-value)
+FingerSplit.v         measure-annotated trees; O(log n) index & split cost
+FingerPhysicist.v     empty + operation algebra op + reverse physicist's
+                      method → amortized_cost (the main theorem)
 ```
 
-Next addition: **Section 5.5** between Head and Empty/Physicist's, covering `tail` / `tailA` / `tailD'` and its proofs. Then extend the operation algebra `op` to include `Tail` and update the Physicist's Argument section.
+Within each operation file the layout follows the artifact convention:
+pure function → clairvoyant (`A`, via `forcing`) + monotonicity → demand
+function (`D'`) → `_approx` / `_spec` / `_cost` proofs.
 
 ## Operation Algebra in Physicist's Argument
 
-Currently: `op = Empty | FCons A | Head`. Budgets all = 3.
+`op = Empty | FCons A | FSnoc A | Head | FTail` (`FingerPhysicist.v:83`). Uniform `budget = 4` for every operation. The final theorem is:
 
-After `tail` is added: `op = Empty | FCons A | Head | Tail`. `Tail` budget: 3 (per analysis in `TAIL_ANALYSIS.md`).
+```coq
+Theorem amortized_cost : AmortizedCostSpec op value valueA.
+```
 
-## Next Step: implementing `tail` (full scope)
+proved by `eapply @physicist's_method; typeclasses eauto`. `Print Assumptions amortized_cost` should report only `Classical_Prop.classic` (inherited from the upstream library); the `Admitted` lemmas in `FingerConcat.v`/`FingerSplit.v` do **not** feed into it.
 
-Detailed feasibility analysis and design blueprint: see `TAIL_ANALYSIS.md`.
+## Remaining Work (post-core)
 
-**Phased plan** (~7–8 working days estimated):
-1. **Phase A**: Pure `tail` + `chop_triple` + reuse of existing `map1`. `Compute` tests.
-2. **Phase B**: `tail_ind` custom induction principle (9 cases).
-3. **Phase C**: `tailA' / tailA` (clairvoyant via `forcing`) + `tailA_mon`.
-4. **Phase D**: `tailD'` with two helpers — `add_pair_to_head_demand`, `inverse_chop_demand` — plus their debt-preservation lemmas.
-5. **Phase E**: Big lemmas `tailD'_approx`, `tailD'_spec`, `tailD'_cost`.
-6. **Phase F**: Extend `op`, `eval`, `exec`, `demand`, `wf_eval`, `monotonic_exec`, `pd`, `cd`, `physicist's_argumentD`.
+The core deque result is complete. What remains is correctness for the secondary operations:
 
-**Design decision**: NOT factoring through a separate `deep0` (à la Lorenzen). Inline the structure into `tail` directly, matching Claessen's presentation. This avoids mutual recursion at the pure level and keeps proofs flatter.
+1. `FingerConcat.v`: discharge the 5 `Admitted` correctness lemmas (`glueD'_approx`, `glueD'_spec`, and helpers) — requires a correct `unbundle` (currently stubbed for cost-only analysis).
+2. `FingerSplit.v`: discharge the 2 `Admitted` correctness lemmas (`splitD_approx` / `splitD_spec`); the demand *values* (not just the tick structure) need to be filled in.
+
+The cost bounds for both (`concatD_cost*`, `indexD_cost`, `splitTreeD_cost`, `*_O_log_n`) are already proven and depend only on `FingerSize.v`.
 
 ## Coding Conventions
 
 - Follow `ImplicitQueue.v` style (naming, tactics, structure).
-- `mgo_` / `keep_mgo_` / `mgo_brute_force` for optimistic specs.
-- `invert_clear` for clean inversions.
+- `mgo_` / `keep_mgo_` / `mgo_brute_force` for optimistic specs (defined at the top of `FingerCore.v`).
+- `invert_clear` for clean inversions; `teardown` to destruct on every match/if.
 - `Qed` for Props (default); `Defined` only for terms that need to compute.
 - Section banner: `(** ===== Section name ===== *)`.
 - `Tick`-monad bind: always `let+`, never `>>` (collision risk with `M`'s `>>`).
 
 ## Build / Dependencies
 
-The project depends on the Clairvoyance library (installed alongside the ICFP 2024 artifact). Confirm `_CoqProject` is set up accordingly. CoqHammer was originally imported but is not used in current proofs — consider dropping the import to speed up compilation.
+The project depends on the vendored `Clairvoyance` library (`src/` minus `Finger*.v`), `coq-equations`, and **`coq-hammer-tactics`** — CoqHammer's `Tactics`/`sauto` are imported (`From Hammer Require Import Tactics`) and used throughout the finger-tree proofs, so the dependency is required (do **not** drop it). `_CoqProject` maps `src/` to the `Clairvoyance` namespace and lists files in dependency order, finger-tree files last. Build with `make` (it generates `Makefile.coq` from `_CoqProject`). CI checks Coq 8.16–8.19.

@@ -82,7 +82,7 @@ Fixpoint ftail {A : Type} (s : Seq A) : Seq A :=
   end.
 
 (* Sanity checks against the worked-examples table in
-   CLAESSEN_REFERENCE.md.  Re-enable to confirm.
+   docs/CLAESSEN_REFERENCE.md.  Re-enable to confirm.
 
 Compute @ftail nat Nil.
 Compute @ftail nat (Unit 1).

@@ -1,0 +1,28 @@
+opam-version: "2.0"
+version: "dev"
+
+maintainer: "Yunkai Zhang <yunkaizhang233@gmail.com>"
+authors: [
+  "Yunkai Zhang"                                   # finger-tree formalisation (src/Finger*.v)
+  "Yao Li, Li-yao Xia, Stephanie Weirich, et al."  # vendored Clairvoyance library / ICFP 2024 artifact
+]
+license: "MIT"
+
+synopsis: "Formally verified amortised complexity of Claessen's simplified finger tree"
+description: """
+A Rocq (Coq) MEng-thesis formalisation proving that the deque operations of
+Koen Claessen's 2020 simplified finger tree (cons, snoc, head, tail) run in
+O(1) amortised time, even under persistent use, via the bidirectional demand
+semantics and reverse physicist's method of Xia et al. (ICFP 2024).
+
+This package vendors the Clairvoyance library from the ICFP 2024 artifact as
+its verification framework; the thesis contribution lives in src/Finger*.v.
+"""
+
+build: [make "-j%{jobs}%"]
+install: [make "install"]
+depends: [
+  "coq" {>= "8.16"}
+  "coq-equations" {>= "1.3"}
+  "coq-hammer-tactics" {>= "1.3.2"}
+]
