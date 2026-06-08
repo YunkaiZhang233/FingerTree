@@ -137,4 +137,4 @@ The cost bounds for both (`concatD_cost*`, `indexD_cost`, `splitTreeD_cost`, `*_
 
 ## Build / Dependencies
 
-The project depends on the vendored `Clairvoyance` library (`src/` minus `Finger*.v`), `coq-equations`, and **`coq-hammer-tactics`** — CoqHammer's `Tactics`/`sauto` are imported (`From Hammer Require Import Tactics`) and used throughout the finger-tree proofs, so the dependency is required (do **not** drop it). `_CoqProject` maps `src/` to the `Clairvoyance` namespace and lists files in dependency order, finger-tree files last. Build with `make` (it generates `Makefile.coq` from `_CoqProject`). CI checks Coq 8.16–8.19.
+The project depends on the vendored `Clairvoyance` library (`src/` minus `Finger*.v`), `coq-equations`, and **`coq-hammer-tactics`** — CoqHammer's `Tactics`/`sauto` are imported (`From Hammer Require Import Tactics`) and used throughout the finger-tree proofs, so the dependency is required (do **not** drop it). `_CoqProject` maps `src/` to the `Clairvoyance` namespace and lists files in dependency order, finger-tree files last. Build with `make` (it generates `Makefile.coq` from `_CoqProject`). CI checks Coq 8.19 only.
