@@ -17,7 +17,20 @@ jobs:
         with:
           opam_file: 'coq-finger-tree.opam'
           custom_image: ${{ matrix.image }}
-
+          before_script: |
+            startGroup "Workaround permission issue"
+              sudo chown -R coq:coq .
+            endGroup
+          script: |
+            startGroup "Build project"
+              opam exec -- make -j 2
+            endGroup
+            startGroup "Audit: Print Assumptions + Admitted/Axiom sweep"
+              opam exec -- make audit
+            endGroup
+          # the default uninstall step expects the package to have been
+          # installed by the default script, which we override above
+          uninstall: ''
 
 # See also:
 # https://github.com/coq-community/docker-coq-action#readme
