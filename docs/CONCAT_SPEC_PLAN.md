@@ -23,9 +23,21 @@
   `Unit/Unit`, `Unit/More`, `More/Nil`, `More/Unit`. Snoc arms each rule out the
   wrong `q1` shapes via `foldl_fsnocD'_approx`, consume the `glueA'` tick
   explicitly, and apply the `foldl` helper with seed `ret q1`.
-- **Remaining (3 admits):** the deep `More/More` arm (arm 6); and the recursive
-  case 5 of **both** `fconsA_elemD_step` and `fsnocA_elemD_step` (closing those
-  makes the whole fold/spec chain axiom-free). Roadmaps in-source + `wip/`.
+- **Session C (done):** closed the recursive **case 5** of **both**
+  `fconsA_elemD_step` and `fsnocA_elemD_step`. The recursive `More (Three…)`
+  case applies the `IH` at the `Tuple` level with the spine-derived `PairA`
+  element (over-approximated), so IH side-condition 2 needs transitivity — hence
+  `!Transitive LDB` was added to the step lemmas + fold helpers (the global
+  `Transitive_LessDefined_{DigitA,TupleA,SeqA}` instances discharge it; provide
+  the `T (TupleA B)` instance explicitly to `@transitivity` to avoid a shelved
+  goal). `mD = Undefined` sub-cases use `optimistic_skip`. Added
+  `fconsD'_val_thunk` / `fsnocD'_val_thunk` (force the recursive spine).
+  **Both step lemmas + both fold helpers are now axiom-free**, so every fold arm
+  of `glueD'_spec` is axiom-free.
+- **Remaining (1 admit): the deep `More/More` arm** (arm 6) of `glueD'_spec` —
+  the lockstep (`IHm` + `glueA'_mon` + the `unbundle` round-trip; likely needs
+  the spec-side dual of `unbundle_flat_approx`). This is the last admit in the
+  whole file.
 
 This document is the orchestration plan for finishing the concatenation
 demand-correctness proof across several sessions. It is paired with the
