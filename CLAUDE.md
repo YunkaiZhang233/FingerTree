@@ -142,6 +142,17 @@ The cost bounds for both (`concatD_cost*`, `indexD_cost`, `splitTreeD_cost`, `*_
 - Section banner: `(** ===== Section name ===== *)`.
 - `Tick`-monad bind: always `let+`, never `>>` (collision risk with `M`'s `>>`).
 
+### Commits
+
+- **All commits MUST follow [Conventional Commits](https://www.conventionalcommits.org/):**
+  `type(scope): description` (e.g. `feat(concat): add glueD'_spec`). Allowed
+  types: `feat fix docs style refactor perf test build ci chore revert`. Use the
+  `/conventional-commit` skill to draft messages.
+- Enforced by a tracked git hook at `.githooks/commit-msg`. After cloning,
+  activate it once with `git config core.hooksPath .githooks` (it is not auto-set
+  by clone).
+- **No AI attribution** — do not add a `Co-Authored-By` trailer for the assistant.
+
 ## Build / Dependencies
 
 The project depends on the vendored `Clairvoyance` library (`src/` minus `Finger*.v`), `coq-equations`, and **`coq-hammer-tactics`** — CoqHammer's `Tactics`/`sauto` are imported (`From Hammer Require Import Tactics`) and used throughout the finger-tree proofs, so the dependency is required (do **not** drop it). `_CoqProject` maps `src/` to the `Clairvoyance` namespace and lists files in dependency order, finger-tree files last. Build with `make` (it generates `Makefile.coq` from `_CoqProject`). CI checks Coq 8.19 only.
