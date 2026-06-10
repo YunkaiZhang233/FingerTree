@@ -241,3 +241,9 @@ clean."*
 clean, then **delete `FingerConcatAlt.v`** and drop it from `_CoqProject`
 (it is already a dormant backup), and update the writeup status prose (batched
 separately by the author — the writeup is reference-only here).
+
+> **Post-completion note.** The work is done (`glueD'_spec` is `Qed`,
+> axiom-free). The `wip/` scratch directory has been **removed** — its lemmas
+> are integrated and `Qed`'d in `src/FingerConcat.v`, so the inline references
+> to `wip/*.v` above are historical only. `FingerConcatAlt.v` deletion and the
+> writeup sync remain as optional author follow-ups.

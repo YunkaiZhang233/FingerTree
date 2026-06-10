@@ -2632,11 +2632,10 @@ Proof.
            [[ fun out cost => outD `less_defined` out /\ cost <= dcost ]])).
 
   (* ------------------------------------------------------------------ *)
-  (* Six admits below.  Plan + per-session orchestration:               *)
-  (*   docs/CONCAT_SPEC_PLAN.md.    Kernel lemma + harness: wip/.        *)
-  (* Inspect any arm's exact goal with wip/inspect.v (copy the block,    *)
-  (* set s1/s2, idtac the goal).  Order: Nil -> Unit/_ -> snoc arms ->   *)
-  (* deep More/More (hardest).                                           *)
+  (* Six arms (all closed): Nil, Unit/{Nil,Unit,More}, More/{Nil,Unit},  *)
+  (* deep More/More.  The fold arms use fcons/fsnoc step lemmas + the     *)
+  (* foldr/foldl clairvoyant helpers; the deep arm uses IHm + glueA_mon + *)
+  (* optimistic_corelax + unbundle_roundtrip.  See docs/CONCAT_SPEC_PLAN. *)
   (* ------------------------------------------------------------------ *)
 
   - (* === s1 = Nil ===  glue Nil as_ s2 = foldr fcons s2 as_;
