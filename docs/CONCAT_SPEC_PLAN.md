@@ -1,6 +1,11 @@
 # Closing `glueD'_spec` — multi-session plan & handoff
 
-**Branch:** `concat-continue`  ·  **File:** `src/FingerConcat.v`  ·  **Status:** Phase 1 done (axiom-free, builds clean).
+**Branch:** `concat-continue`  ·  **File:** `src/FingerConcat.v`  ·  **Status:**
+✅ **DONE — `glueD'_spec` is `Qed` and `Print Assumptions glueD'_spec` reports
+"Closed under the global context" (axiom-free).** Whole project builds; the main
+theorem `amortized_cost` still rests only on `Classical_Prop.classic`. The only
+`Admitted` left in the file is inside a commented-out block (the dead
+`glueD'_exact` note).
 
 ## Progress log
 
@@ -34,10 +39,34 @@
   `fconsD'_val_thunk` / `fsnocD'_val_thunk` (force the recursive spine).
   **Both step lemmas + both fold helpers are now axiom-free**, so every fold arm
   of `glueD'_spec` is axiom-free.
-- **Remaining (1 admit): the deep `More/More` arm** (arm 6) of `glueD'_spec` —
-  the lockstep (`IHm` + `glueA'_mon` + the `unbundle` round-trip; likely needs
-  the spec-side dual of `unbundle_flat_approx`). This is the last admit in the
-  whole file.
+- **Session D (done): the deep `More/More` arm** (arm 6) of `glueD'_spec` is
+  closed → **`glueD'_spec` is now `Qed`**. Three new lemmas (placed just before
+  `glueD'_spec`):
+  - **`unbundle_roundtrip`** — the spec-side dual of `unbundle_flat_approx`:
+    re-bundling the sliced `(v1D | asD | u2D)` via `toTuplesA` (exactly what the
+    clairvoyant `glueA'` recomputes) reproduces a tuple-demand list **dominating**
+    `middleD`, and the digit slices come back as concrete `Thunk`s (lengths land
+    in 1..3, so `listToDigitA` is a `Thunk`). Built on:
+    - **`flat_retuple`** — the upward re-tupling core: `Forall2 ≤ middleD
+      (toTuplesA flat)`. Brute force on `n = length L` (≤ 9); boundaries align
+      because `toTuplesA` and `tupleArities` share the greedy Triple-first rule.
+    - `listToDigitA_thunk` (length-1..3 left inverse) + `unbundle_flat_approx`
+      (reused for the `length flat = length L` fact) + `firstn`/`skipn` reassembly.
+  - **`glueD'_val_thunk`** — every arm of `glueD'` returns concrete `Thunk`s in
+    the two spine slots, so the deep arm can `force` the recursive `m1D`/`m2D`.
+  - **The arm itself**: `IHm` (spec, at the `Tuple` level) gives a spec for the
+    recursive demand triple; `glueA_mon` + `optimistic_corelax` (with `uc_cost`)
+    transport it onto the re-bundled `tuples`; `unbundle_roundtrip` supplies the
+    `middleD ≤ tuples` domination. The `let~ m'` is **always forced**:
+    `m'D ≤ Thunk m'D_forced` holds unconditionally, and the IH gives a witness
+    even when `m'D_forced` is bottom — so no `m'D` case split is needed. Needed a
+    local `PreOrder (less_defined (a := B0))` (assembled from `Refl0`/`Trans0`)
+    for `glueA_mon` at the `TupleA` level.
+
+**No admits remain on the active path.** Optional follow-ups (NOT done here —
+surface to the author): delete the dormant `FingerConcatAlt.v` (no longer in
+`_CoqProject`, referenced only by a stale comment in `FingerConcat.v:22`), and
+sync the writeup status prose.
 
 This document is the orchestration plan for finishing the concatenation
 demand-correctness proof across several sessions. It is paired with the

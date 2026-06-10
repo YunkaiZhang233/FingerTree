@@ -17,7 +17,8 @@ MEng thesis project formally verifying the amortised time complexity of **Claess
 - ✅ Sub-additivity of `debt` for `SeqA` (`debt_SeqA_lub_subadditive`) — `FingerCore.v`
 - ✅ Physicist's argument over `op = Empty | FCons A | FSnoc A | Head | FTail`: all instances (`eval`, `exec`, `demand`, `potential`, `budget`, `pd`, `cd`, `well_defined_potential`, `physicist's_argumentD`, `amortized_cost`) closed — `FingerPhysicist.v`. Uniform `budget = 4`.
 - ✅ Size/depth metrics + `O(log n)` foundations (`size_lower_bound`, `depth_log_size`) — `FingerSize.v`
-- 🟡 **Secondary (cost-only)**: `concat`/`glue` (`FingerConcat.v`) and measure-annotated `index`/`split` (`FingerSplit.v`, `FingerMonoid.v`) — **worst-case O(log n) COST bounds fully proven**; their functional-correctness lemmas (`_approx`/`_spec`) are `Admitted` as scoped future work (5 in `FingerConcat.v`, 2 in `FingerSplit.v`).
+- ✅ **`concat`/`glue` correctness** (`FingerConcat.v`): both worst-case O(log n) **cost** bounds AND functional correctness are now fully proven and axiom-free. `glueD'_approx` and **`glueD'_spec`** (clairvoyant dominates demand) are `Qed`; `Print Assumptions glueD'_spec` is "Closed under the global context". `unbundle` is now a faithful inverse (round-trip via `unbundle_flat_approx` / `unbundle_roundtrip`). No admits remain in the file (one dead `Admitted` lives inside a commented-out block).
+- 🟡 **Secondary (cost-only)**: measure-annotated `index`/`split` (`FingerSplit.v`, `FingerMonoid.v`) — **worst-case O(log n) COST bounds fully proven**; their functional-correctness lemmas (`_approx`/`_spec`) are `Admitted` as scoped future work (2 in `FingerSplit.v`).
 - ❌ **Out of thesis scope**: `last`/`init` — symmetric to `head`/`tail`, described in thesis only.
 
 ## Key References
@@ -115,13 +116,19 @@ function (`D'`) → `_approx` / `_spec` / `_cost` proofs.
 Theorem amortized_cost : AmortizedCostSpec op value valueA.
 ```
 
-proved by `eapply @physicist's_method; typeclasses eauto`. `Print Assumptions amortized_cost` should report only `Classical_Prop.classic` (inherited from the upstream library); the `Admitted` lemmas in `FingerConcat.v`/`FingerSplit.v` do **not** feed into it.
+proved by `eapply @physicist's_method; typeclasses eauto`. `Print Assumptions amortized_cost` should report only `Classical_Prop.classic` (inherited from the upstream library); the remaining `Admitted` lemmas in `FingerSplit.v` do **not** feed into it (`FingerConcat.v` is now admit-free).
 
 ## Remaining Work (post-core)
 
-The core deque result is complete. What remains is correctness for the secondary operations:
+The core deque result is complete, and `concat`/`glue` correctness is now also
+complete (`FingerConcat.v` is admit-free). What remains is correctness for the
+measure-annotated secondary operations:
 
-1. `FingerConcat.v`: discharge the 5 `Admitted` correctness lemmas (`glueD'_approx`, `glueD'_spec`, and helpers) — requires a correct `unbundle` (currently stubbed for cost-only analysis).
+1. ✅ **Done**: `FingerConcat.v` — `glueD'_approx` / `glueD'_spec` and all
+   helpers (`unbundle_roundtrip`, `flat_retuple`, `glueD'_val_thunk`, the step
+   lemmas + fold helpers) are `Qed` and axiom-free. `unbundle` is a faithful
+   inverse. (Optional cleanup: delete the dormant `FingerConcatAlt.v` backup,
+   no longer in `_CoqProject`.)
 2. `FingerSplit.v`: discharge the 2 `Admitted` correctness lemmas (`splitD_approx` / `splitD_spec`); the demand *values* (not just the tick structure) need to be filled in.
 
 The cost bounds for both (`concatD_cost*`, `indexD_cost`, `splitTreeD_cost`, `*_O_log_n`) are already proven and depend only on `FingerSize.v`.

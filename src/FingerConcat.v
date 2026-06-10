@@ -2439,6 +2439,173 @@ Proof.
 Qed.
 
 
+(* ================================================================= *)
+(** ** Spec-side [unbundle] round-trip (dual of [unbundle_flat_approx])  *)
+(* ================================================================= *)
+
+(** Invert each per-tuple element-demand, distributing over the
+    Undefined/Thunk split via [;] (a [repeat match] would only process the
+    focused goal).  Used by [crunch_retuple]. *)
+Ltac inv_elems :=
+  match goal with
+  | Hd : _ `less_defined` (exact (Pair _ _))     |- _ => invert_clear Hd; inv_elems
+  | Hd : _ `less_defined` (exact (Triple _ _ _))  |- _ => invert_clear Hd; inv_elems
+  | H  : _ `less_defined` (PairA _ _)             |- _ => invert_clear H; inv_elems
+  | H  : _ `less_defined` (TripleA _ _ _)         |- _ => invert_clear H; inv_elems
+  | _ => idtac
+  end.
+
+Ltac crunch_retuple :=
+  cbn [toTuples tupleArities List.length List.map] in *;
+  repeat match goal with
+         | H : Forall2 _ _ (_ :: _) |- _ => inversion H; subst; clear H
+         | H : Forall2 _ _ []       |- _ => inversion H; subst; clear H
+         end;
+  inv_elems;
+  cbn [tupleArities List.combine List.map List.concat unbundleTuple
+       toTuplesA List.repeat List.app];
+  repeat first [ apply Forall2_nil
+               | apply Forall2_cons; [ first [ reflexivity | apply LessDefined_Undefined ] | ] ].
+
+(** Re-tupling the [unbundle] flattening of [middleD] dominates [middleD]:
+    even where [middleD] has an [Undefined] tuple-demand, [toTuplesA] of the
+    expansion produces a defined [PairA]/[TripleA] that dominates [Undefined].
+    Brute force on [n = length L] (2..9, here ≤ 9); the bundling boundaries
+    align because [toTuplesA] and [tupleArities] share Claessen's greedy
+    Triple-first rule.  This is the upward direction the spec needs — the
+    approximation lemma [unbundle_flat_approx] only gives the downward one. *)
+Lemma flat_retuple {A B : Type} `{LDB : LessDefined B, !Reflexive LDB, Exact A B}
+  (L : list A) (middleD : list (T (TupleA B))) :
+  List.length L <= 9 ->
+  Forall2 less_defined middleD (List.map exact (toTuples L)) ->
+  Forall2 less_defined middleD
+    (toTuplesA (List.concat (List.map (fun '(k,t) => unbundleTuple k t)
+                            (List.combine (tupleArities (List.length L)) middleD)))).
+Proof.
+  intros Hlen HmD.
+  do 10 (destruct L as [| ? L]; [ crunch_retuple | ]).
+  cbn [List.length] in Hlen; lia.
+Qed.
+
+(** [listToDigitA]/[digitToListA] left-inverse on length-1..3 lists. *)
+Lemma listToDigitA_thunk {B : Type} (l : list (T B)) :
+  1 <= List.length l <= 3 ->
+  exists d, listToDigitA l = Thunk d /\ digitToListA d = l.
+Proof.
+  intro Hlen.
+  destruct l as [| a l]; [ cbn [List.length] in Hlen; lia | ].
+  destruct l as [| b l]; [ exists (OneA a); split; reflexivity | ].
+  destruct l as [| c l]; [ exists (TwoA a b); split; reflexivity | ].
+  destruct l as [| dd l]; [ exists (ThreeA a b c); split; reflexivity | ].
+  cbn [List.length] in Hlen; lia.
+Qed.
+
+(** *** [unbundle_roundtrip]: the spec-side dual of [unbundle_flat_approx].
+
+    [unbundle] slices a tuple-level middle demand [middleD] back into a rear
+    digit [v1], a flat list [asD], and a front digit [u2].  Going the other
+    way, re-bundling [digitToListA v1 ++ asD ++ digitToListA u2] via
+    [toTuplesA] (exactly what the clairvoyant [glueA'] recomputes) reproduces
+    a tuple-demand list that dominates [middleD].  The digit slices come back
+    as concrete [Thunk]s (their lengths land in 1..3), which is what lets the
+    clairvoyant [force rD1]/[force fD2] succeed in the deep arm. *)
+Lemma unbundle_roundtrip {A B : Type} `{LDB : LessDefined B, !Reflexive LDB, Exact A B}
+    (L : list A) (middleD : list (T (TupleA B)))
+    (n_v1 n_as n_u2 : nat) :
+  1 <= n_v1 <= 3 ->
+  1 <= n_u2 <= 3 ->
+  n_v1 + n_as + n_u2 = List.length L ->
+  2 <= List.length L <= 9 ->
+  Forall2 less_defined middleD (List.map exact (toTuples L)) ->
+  exists v1 u2 asD,
+    unbundle middleD n_v1 n_as n_u2 = (Thunk v1, asD, Thunk u2) /\
+    Forall2 less_defined middleD
+            (toTuplesA (digitToListA v1 ++ asD ++ digitToListA u2)).
+Proof.
+  intros Hv1 Hu2 Hn Hlen HmD.
+  unfold unbundle; cbv zeta.
+  rewrite Hn.
+  set (flat := List.concat (List.map (fun '(k, t) => unbundleTuple k t)
+                 (List.combine (tupleArities (List.length L)) middleD))) in *.
+  assert (Hfa : Forall2 less_defined flat (List.map exact L)).
+  { unfold flat. apply unbundle_flat_approx; [ lia | exact HmD ]. }
+  assert (Hflatlen : List.length flat = List.length L).
+  { apply Forall2_length in Hfa. rewrite List.map_length in Hfa. exact Hfa. }
+  destruct (@listToDigitA_thunk _ (List.firstn n_v1 flat)) as [ v1 [ Hv1eq Hv1dl ] ].
+  { rewrite List.firstn_length, Hflatlen. lia. }
+  destruct (@listToDigitA_thunk _ (List.skipn (n_v1 + n_as) flat)) as [ u2 [ Hu2eq Hu2dl ] ].
+  { rewrite List.skipn_length, Hflatlen. lia. }
+  exists v1, u2, (List.firstn n_as (List.skipn n_v1 flat)).
+  rewrite Hv1eq, Hu2eq.
+  split; [ reflexivity | ].
+  rewrite Hv1dl, Hu2dl.
+  assert (Hreass : List.firstn n_v1 flat ++ List.firstn n_as (List.skipn n_v1 flat)
+                   ++ List.skipn (n_v1 + n_as) flat = flat).
+  { replace (n_v1 + n_as) with (n_as + n_v1) by lia.
+    rewrite <- List.skipn_skipn.
+    rewrite List.firstn_skipn.
+    rewrite List.firstn_skipn.
+    reflexivity. }
+  rewrite Hreass.
+  unfold flat. apply flat_retuple; [ lia | exact HmD ].
+Qed.
+
+(** [glueD'] always returns concrete [Thunk]s for the two spine-demand slots
+    (every arm wraps them in a constructor or threads them through the
+    fold demand functions, which are themselves [Thunk]-valued).  This lets
+    the deep arm [force] the recursive [m1D]/[m2D] middles. *)
+Lemma glueD'_val_thunk {A : Type} (s1 : Seq A) :
+  forall (B : Type) `{LDB : LessDefined B, !Reflexive LDB, Exact A B}
+         (as_ : list A) (s2 : Seq A) (outD : SeqA B),
+    List.length as_ <= 3 ->
+    outD `is_approx` glue s1 as_ s2 ->
+    exists q1 asD q2,
+      Tick.val (glueD' s1 as_ s2 outD) = (Thunk q1, asD, Thunk q2).
+Proof.
+  destruct s1 as [ | x | u1 m1 v1 ]; intros B LDB Refl0 EAB as_ s2 outD Hlen Happrox.
+  - (* Nil *)
+    cbn [glueD']. cbv zeta.
+    destruct (foldr_fconsD'_val_thunk as_ s2 outD) as [ q2 Hq2 ].
+    unfold Tick.bind, Tick.ret, Tick.tick; cbn [Tick.val]. rewrite Hq2.
+    do 3 eexists; reflexivity.
+  - (* Unit x *)
+    destruct s2 as [ | y | u2 m2 v2 ].
+    + cbn [glue] in Happrox. cbn [glueD']. cbv zeta.
+      destruct (@foldl_fsnocD'_val_thunk A B _ _ _ as_ (Unit x) outD Happrox) as [ q1 Hq1 ].
+      unfold Tick.bind, Tick.ret, Tick.tick; cbn [Tick.val]. rewrite Hq1.
+      do 3 eexists; reflexivity.
+    + cbn [glueD']. cbv zeta.
+      destruct (foldr_fconsD'_val_thunk (x :: as_) (Unit y) outD) as [ q2 Hq2 ].
+      unfold Tick.bind, Tick.ret, Tick.tick; cbn [Tick.val]. rewrite Hq2.
+      destruct (foldr_fcons_elems (x :: as_) (Unit y) outD) as [ | xD asD' ];
+        do 3 eexists; reflexivity.
+    + cbn [glueD']. cbv zeta.
+      destruct (foldr_fconsD'_val_thunk (x :: as_) (More u2 m2 v2) outD) as [ q2 Hq2 ].
+      unfold Tick.bind, Tick.ret, Tick.tick; cbn [Tick.val]. rewrite Hq2.
+      destruct (foldr_fcons_elems (x :: as_) (More u2 m2 v2) outD) as [ | xD asD' ];
+        do 3 eexists; reflexivity.
+  - (* More u1 m1 v1 *)
+    destruct s2 as [ | y | u2 m2 v2 ].
+    + cbn [glue] in Happrox. cbn [glueD']. cbv zeta.
+      destruct (@foldl_fsnocD'_val_thunk A B _ _ _ as_ (More u1 m1 v1) outD Happrox) as [ q1 Hq1 ].
+      unfold Tick.bind, Tick.ret, Tick.tick; cbn [Tick.val]. rewrite Hq1.
+      do 3 eexists; reflexivity.
+    + cbn [glue] in Happrox. cbn [glueD']. cbv zeta.
+      destruct (@foldl_fsnocD'_val_thunk A B _ _ _ (as_ ++ [y]) (More u1 m1 v1) outD Happrox) as [ q1 Hq1 ].
+      unfold Tick.bind, Tick.ret, Tick.tick; cbn [Tick.val]. rewrite Hq1.
+      do 3 eexists; reflexivity.
+    + cbn [glue] in Happrox.
+      invert_clear Happrox as [ | | ? ? ? ? ? ? Hu1 Hm Hv2 ].
+      cbn [glueD']. cbv zeta.
+      unfold Tick.bind, Tick.ret, Tick.tick; cbn [Tick.val].
+      destruct (Tick.val (glueD' m1 (toTuples (digitToList v1 ++ as_ ++ digitToList u2)) m2
+                  match _ with Thunk q => q | Undefined => _ end)) as [ [m1D middleD] m2D ].
+      destruct (unbundle middleD (List.length (digitToList v1)) (List.length as_)
+                  (List.length (digitToList u2))) as [ [ v1D asD0 ] u2D ].
+      do 3 eexists; reflexivity.
+Qed.
+
+
 (** *** [glueD'_spec]: clairvoyant dominates demand. *)
 Lemma glueD'_spec :
   forall (A : Type) (s1 : Seq A)
@@ -2626,15 +2793,94 @@ Proof.
       * exfalso. destruct (@foldl_fsnocD'_val_thunk A0 B0 _ _ _ (as_ ++ [y]) (More f m r) outD Happrox) as [ qx Hqx ].
         rewrite Hqx in Es1D. discriminate Es1D.
     + (* arm 6: DEEP More/More — the hard lockstep.  outD = MoreA u1D m'D v2D.
-         glueA' recurses on the middle; glueD' recursed via unbundle.  Need:
-           IHm (the Seq_ind_poly hypothesis at Tuple level) for the middle,
-           glueA'_mon for monotonicity of the recursive clairvoyant call,
-           and the unbundle ROUND-TRIP on the spec side: that re-bundling the
-           sliced (v1D | asD | u2D) reproduces the middle demand middleD.
-           This last is the dual of unbundle_flat_approx and is the likely new
-           lemma to write.  SPIKE THIS EARLY (see plan §3, Session A). *)
-      admit.
-Admitted.
+         glueA' recurses on the middle; glueD' recursed via unbundle.  The
+         lockstep: the IH at the Tuple level ([IHm]) gives a spec for the
+         recursive demand triple [(m1D, middleD, m2D)]; [glueA_mon] +
+         [optimistic_corelax] transport it onto the re-bundled tuples the
+         clairvoyant recomputes; [unbundle_roundtrip] (dual of
+         [unbundle_flat_approx]) supplies the digit slices as concrete Thunks
+         and the [middleD <= toTuplesA (…)] domination.  The [let~ m'] is
+         always forced: [m'D <= Thunk m'D_forced] holds unconditionally, and
+         the IH gives a witness even when [m'D_forced] is bottom. *)
+      destruct outD as [ | | u1D m'D v2D ];
+        [ cbn [glue] in Happrox; invert_clear Happrox
+        | cbn [glue] in Happrox; invert_clear Happrox
+        | ].
+      cbn [glue] in Happrox.
+      invert_clear Happrox as [ | | ? ? ? ? ? ? Hu1 Hm Hv2 ].
+      cbn [glueD'] in Htriple, dcost; cbv zeta in Htriple, dcost.
+      set (middle := toTuples (digitToList r ++ as_ ++ digitToList u2)) in *.
+      set (m'D_forced := match m'D with
+                         | Thunk q => q
+                         | Undefined => bottom_of (exact (glue m middle m2))
+                         end) in *.
+      assert (Hm_forced : m'D_forced `is_approx` glue m middle m2).
+      { unfold m'D_forced. destruct m'D as [ q | ] eqn:Eq.
+        - invert_clear Hm. assumption.
+        - apply bottom_is_least. reflexivity. }
+      assert (Hmiddle_len : List.length middle <= 3).
+      { unfold middle. apply toTuples_length_bound.
+        rewrite !List.app_length. destruct r, u2; simpl; lia. }
+      pose proof (@glueD'_approx (Tuple A0) m (TupleA B0) _ _ _ middle m2 m'D_forced
+                    Hmiddle_len Hm_forced) as Happ_rec.
+      destruct (Tick.val (glueD' m middle m2 m'D_forced)) as [ [m1D middleD] m2D ] eqn:Eval.
+      destruct Happ_rec as [ Hm1D [ HmiddleD Hm2D ] ].
+      (* unbundle round-trip: digit slices come back as Thunks; re-bundling
+         dominates middleD *)
+      assert (HLlen : 2 <= List.length (digitToList r ++ as_ ++ digitToList u2) <= 9).
+      { rewrite !List.app_length. destruct r, u2; cbn [digitToList List.length]; lia. }
+      assert (Hn123 : List.length (digitToList r) + List.length as_ + List.length (digitToList u2)
+                      = List.length (digitToList r ++ as_ ++ digitToList u2)).
+      { rewrite !List.app_length. lia. }
+      destruct (@unbundle_roundtrip A0 B0 _ _ _
+                    (digitToList r ++ as_ ++ digitToList u2) middleD
+                    (List.length (digitToList r)) (List.length as_) (List.length (digitToList u2))
+                    ltac:(destruct r; cbn [digitToList List.length]; lia)
+                    ltac:(destruct u2; cbn [digitToList List.length]; lia)
+                    Hn123 HLlen HmiddleD)
+        as [ v1' [ u2' [ asD' [ Hunb Hretup ] ] ] ].
+      (* read off s1D, asD, s2D *)
+      cbn [Tick.val Tick.bind Tick.tick] in Htriple.
+      rewrite Eval in Htriple.
+      rewrite Hunb in Htriple.
+      cbn [Tick.val Tick.ret] in Htriple.
+      invert_clear Htriple.
+      (* dcost = 1 + cost of the recursive call *)
+      assert (Hdcost : dcost = 1 + Tick.cost (glueD' m middle m2 m'D_forced)).
+      { subst dcost. cbn [Tick.cost Tick.bind Tick.tick]. rewrite Eval, Hunb.
+        cbn [Tick.cost Tick.ret]. lia. }
+      clearbody dcost. rewrite Hdcost.
+      (* IH on the recursive middle *)
+      specialize (IHm (TupleA B0) _ _ _ _ middle m2 m'D_forced Hmiddle_len Hm_forced
+                    m1D middleD m2D (eq_sym Eval)).
+      cbv zeta in IHm.
+      (* corelax the IH spec onto the re-bundled tuples the clairvoyant recomputes *)
+      assert (HPO_B0 : PreOrder (less_defined (a := B0))) by (constructor; assumption).
+      assert (Hcomp : glueA m1D (toTuplesA (digitToListA v1' ++ asD' ++ digitToListA u2')) m2D
+                      [[ fun out cost => m'D_forced `less_defined` out
+                                         /\ cost <= Tick.cost (glueD' m middle m2 m'D_forced) ]]).
+      { eapply optimistic_corelax; [ | apply uc_cost | exact IHm ].
+        apply glueA_mon; [ reflexivity | exact Hretup | reflexivity ]. }
+      (* m'D is dominated by Thunk m'D_forced unconditionally *)
+      assert (Hmdf : m'D `less_defined` Thunk m'D_forced).
+      { unfold m'D_forced. destruct m'D as [ q | ]; [ reflexivity | apply LessDefined_Undefined ]. }
+      (* drive the clairvoyant glueA' *)
+      unfold glueA. unfold glueA in Hcomp.
+      cbn [forcing glueA'].
+      apply optimistic_bind. apply optimistic_tick.
+      cbn [force]. apply optimistic_bind. apply optimistic_ret. cbn beta.
+      apply optimistic_bind. apply optimistic_ret. cbn beta.
+      apply optimistic_bind. apply optimistic_thunk_go.
+      eapply optimistic_mon; [ exact Hcomp | ].
+      intros cval n [ Hcval Hcost ].
+      apply optimistic_ret.
+      split.
+      * constructor;
+          [ reflexivity
+          | etransitivity; [ exact Hmdf | constructor; exact Hcval ]
+          | reflexivity ].
+      * lia.
+Qed.
 
 (* ================================================================= *)
 (** ** Section 5b: Asymptotic [O(log n)] corollary                     *)
