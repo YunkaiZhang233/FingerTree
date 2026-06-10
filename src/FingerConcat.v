@@ -2880,6 +2880,43 @@ Proof.
       * lia.
 Qed.
 
+(** *** [glueD_spec]: spec for the top-level alias [glueD].
+
+    [glueD] is the monomorphic ([A = B]) alias of [glueD'], so this is the
+    same statement specialised to that alias.  Kept for parity with the
+    per-operation files (cf. [fconsD_spec] in [FingerCons.v]). *)
+Corollary glueD_spec (A : Type) `{LDA : LessDefined A, !Reflexive LDA, !Transitive LDA}
+    (s1 : Seq A) (as_ : list A) (s2 : Seq A) (outD : SeqA A) :
+  List.length as_ <= 3 ->
+  outD `is_approx` glue s1 as_ s2 ->
+  forall s1D asD s2D,
+    (s1D, asD, s2D) = Tick.val (glueD s1 as_ s2 outD) ->
+    let dcost := Tick.cost (glueD s1 as_ s2 outD) in
+    glueA s1D asD s2D
+    [[ fun out cost => outD `less_defined` out /\ cost <= dcost ]].
+Proof.
+  intros. eapply glueD'_spec; eauto.
+Qed.
+
+(** *** [concatD_spec]: spec for the top-level [concat] demand.
+
+    [concat q1 q2 = glue q1 [] q2], so this is the [as_ = []] instance of
+    [glueD'_spec], mirroring how [concatD_approx] specialises
+    [glueD'_approx].  Completes the [_approx]/[_spec]/[_cost] trio for the
+    public [concatD]. *)
+Corollary concatD_spec (A : Type) `{LDA : LessDefined A, !Reflexive LDA, !Transitive LDA}
+    (q1 q2 : Seq A) (outD : SeqA A) :
+  outD `is_approx` concat q1 q2 ->
+  forall s1D asD s2D,
+    (s1D, asD, s2D) = Tick.val (concatD q1 q2 outD) ->
+    let dcost := Tick.cost (concatD q1 q2 outD) in
+    glueA s1D asD s2D
+    [[ fun out cost => outD `less_defined` out /\ cost <= dcost ]].
+Proof.
+  intros Happrox s1D asD s2D Hval. unfold concatD in *.
+  eapply glueD'_spec; eauto using Nat.le_0_l.
+Qed.
+
 (* ================================================================= *)
 (** ** Section 5b: Asymptotic [O(log n)] corollary                     *)
 (* ================================================================= *)
