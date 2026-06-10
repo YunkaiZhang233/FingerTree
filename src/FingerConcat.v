@@ -2226,6 +2226,19 @@ Proof.
 Qed.
 
 
+Lemma fsnocD'_val_thunk (A B : Type) `{LDB : LessDefined B, !Reflexive LDB, Exact A B}
+    (s : Seq A) (x : A) (outD : SeqA B) :
+  outD `is_approx` fsnoc s x ->
+  exists q, Tick.val (fsnocD' s x outD) = Thunk q.
+Proof.
+  intro Hap. cbn [fsnoc] in Hap.
+  destruct s as [ | y | f m [a | a b | a b c] ];
+    destruct outD as [ | xD | fD mD rD ]; try (invert_clear Hap; fail);
+    try (destruct fD as [ [ ? | ? ? | ? ? ? ] | ]);
+    try (destruct rD as [ [ ? | ? ? | ? ? ? ] | ]);
+    cbn [fsnocD' Tick.bind Tick.ret Tick.val]; eexists; reflexivity.
+Qed.
+
 (** *** Snoc-side duals of the cons step / fold helper, for the [_,Nil] and
     [_,Unit] arms of [glueD'_spec] (which run [glueA']'s [fold_left fsnoc]).
     [fsnocA_elemD_step] mirrors [fconsA_elemD_step] (front<->rear); the fold
@@ -2282,9 +2295,84 @@ Proof.
       invert_clear Hq as [ | | ? ? ? ? ? ? Hqf Hqm Hqr ];
       invert_clear Hqr as [ | ? ? Hz ]; invert_clear Hz as [ | ? ? ? ? Haq Hbq | ];
       cbn [fsnocA']; force_all.
-  - (* Case 5: recursive -- admit (mirror of fconsA_elemD_step case 5) *)
-    admit.
-Admitted.
+  - (* Case 5: s = More f m (Three a b c) -- recursive (mirror of the cons
+       case 5, front<->rear; the middle recurses with the spine-derived
+       PairA qa qb). *)
+    intros A0 x0 a0 b0 c0 f0 m0 IH B0 LDB0 HRefl0 HTrans0 EAB0 outD e q Happrox Helem Hq.
+    destruct outD as [ | xD | fD mD rD ]; try (invert_clear Happrox; fail).
+    invert_clear Happrox as [ | | ? ? ? ? ? ? Hf Hm Hr ].
+    destruct rD as [ [ r1 | r1 r2 | r1 r2 r3 ] | ]; kill_digit Hr;
+      cbn [fsnoc_elemD] in Helem; cbn [fsnocD' Tick.bind Tick.ret Tick.val] in Hq;
+      invert_clear Hq as [ | | ? ? ? ? ? ? Hqf Hqm Hqr ];
+      invert_clear Hqr as [ | ? ? Hz ];
+      invert_clear Hz as [ | | ? ? ? ? ? ? Haq Hbq Hcq ];
+      destruct mD as [ dc | ]; cbn [thunkD] in Hqm.
+    + (* TwoA rear, mD = Thunk dc *)
+      assert (Hmc : dc `is_approx` fsnoc m0 (Pair a0 b0)) by (invert_clear Hm; assumption).
+      destruct (@fsnocD'_val_thunk (Tuple A0) (TupleA B0) _ _ _ m0 (Pair a0 b0) dc Hmc) as [ qd Hqd ].
+      rewrite Hqd in Hqm.
+      assert (Hq2 : exists q2', m2 = Thunk q2' /\ qd `less_defined` q2')
+        by (destruct m2 as [ q2' | ]; [ exists q2'; split; [ reflexivity | invert_clear Hqm; assumption ] | invert_clear Hqm ]).
+      destruct Hq2 as [ q2' [ Hm2 Hqd' ] ]. subst m2.
+      cbn [fsnocA']; mgo_;
+      apply optimistic_thunk_go; mgo_;
+      apply optimistic_thunk_go; mgo_;
+      apply optimistic_thunk_go; mgo_.
+      eapply optimistic_mon.
+      { eapply IH.
+        - typeclasses eauto.
+        - typeclasses eauto.
+        - exact Hmc.
+        - eapply (@transitivity (T (TupleA B0)) less_defined
+                    (@Transitive_LessDefined_T (TupleA B0) _ (@Transitive_LessDefined_TupleA B0 _ HTrans0))
+                    _ (exact (Pair a0 b0)) _);
+            [ eapply fsnoc_elemD_approx; exact Hmc
+            | cbn [exact Exact_Tuple Exact_T]; constructor; constructor; [ exact Haq | exact Hbq ] ].
+        - rewrite Hqd. cbn. exact Hqd'. }
+      intros mv n2 [Hmv Hcost2].
+      apply optimistic_ret. split.
+      * constructor;
+        [ exact Hqf
+        | constructor; exact Hmv
+        | constructor; constructor; [ exact Hcq | exact Helem ] ].
+      * cbn [fsnocD' thunkD Tick.bind Tick.ret Tick.tick Tick.cost Tick.val] in *; lia.
+    + (* TwoA rear, mD = Undefined: skip *)
+      cbn [fsnocA']; mgo_;
+      apply optimistic_thunk_go; mgo_;
+      apply optimistic_thunk_go; mgo_;
+      apply optimistic_skip; mgo_.
+    + (* Undefined rear, mD = Thunk dc *)
+      assert (Hmc : dc `is_approx` fsnoc m0 (Pair a0 b0)) by (invert_clear Hm; assumption).
+      destruct (@fsnocD'_val_thunk (Tuple A0) (TupleA B0) _ _ _ m0 (Pair a0 b0) dc Hmc) as [ qd Hqd ].
+      rewrite Hqd in Hqm.
+      assert (Hq2 : exists q2', m2 = Thunk q2' /\ qd `less_defined` q2')
+        by (destruct m2 as [ q2' | ]; [ exists q2'; split; [ reflexivity | invert_clear Hqm; assumption ] | invert_clear Hqm ]).
+      destruct Hq2 as [ q2' [ Hm2 Hqd' ] ]. subst m2.
+      cbn [fsnocA']; mgo_;
+      apply optimistic_thunk_go; mgo_;
+      apply optimistic_thunk_go; mgo_;
+      apply optimistic_thunk_go; mgo_.
+      eapply optimistic_mon.
+      { eapply IH.
+        - typeclasses eauto.
+        - typeclasses eauto.
+        - exact Hmc.
+        - eapply (@transitivity (T (TupleA B0)) less_defined
+                    (@Transitive_LessDefined_T (TupleA B0) _ (@Transitive_LessDefined_TupleA B0 _ HTrans0))
+                    _ (exact (Pair a0 b0)) _);
+            [ eapply fsnoc_elemD_approx; exact Hmc
+            | cbn [exact Exact_Tuple Exact_T]; constructor; constructor; [ exact Haq | exact Hbq ] ].
+        - rewrite Hqd. cbn. exact Hqd'. }
+      intros mv n2 [Hmv Hcost2].
+      apply optimistic_ret. split.
+      * constructor; [ exact Hqf | constructor; exact Hmv | constructor ].
+      * cbn [fsnocD' thunkD Tick.bind Tick.ret Tick.tick Tick.cost Tick.val] in *; lia.
+    + (* Undefined rear, mD = Undefined: skip *)
+      cbn [fsnocA']; mgo_;
+      apply optimistic_thunk_go; mgo_;
+      apply optimistic_thunk_go; mgo_;
+      apply optimistic_skip; mgo_.
+Qed.
 
 Lemma foldl_fsnoc_clairvoyant_spec (A B : Type) `{LDB : LessDefined B, !Reflexive LDB, !Transitive LDB, Exact A B} :
   forall (as_ : list A) (s_1 : Seq A) (outD : SeqA B) (acc : M (SeqA B)) (Cacc : nat),
@@ -2330,19 +2418,6 @@ Qed.
     discharge the Undefined-spine branch of the snoc arms of glueD'_spec.
     (Unlike the cons fold, fsnocD' is not unconditionally Thunk, hence the
     is_approx hypothesis.) *)
-Lemma fsnocD'_val_thunk (A B : Type) `{LDB : LessDefined B, !Reflexive LDB, Exact A B}
-    (s : Seq A) (x : A) (outD : SeqA B) :
-  outD `is_approx` fsnoc s x ->
-  exists q, Tick.val (fsnocD' s x outD) = Thunk q.
-Proof.
-  intro Hap. cbn [fsnoc] in Hap.
-  destruct s as [ | y | f m [a | a b | a b c] ];
-    destruct outD as [ | xD | fD mD rD ]; try (invert_clear Hap; fail);
-    try (destruct fD as [ [ ? | ? ? | ? ? ? ] | ]);
-    try (destruct rD as [ [ ? | ? ? | ? ? ? ] | ]);
-    cbn [fsnocD' Tick.bind Tick.ret Tick.val]; eexists; reflexivity.
-Qed.
-
 Lemma foldl_fsnocD'_val_thunk (A B : Type) `{LDB : LessDefined B, !Reflexive LDB, Exact A B}
     (as_ : list A) (s_1 : Seq A) (outD : SeqA B) :
   outD `is_approx` List.fold_left fsnoc as_ s_1 ->
