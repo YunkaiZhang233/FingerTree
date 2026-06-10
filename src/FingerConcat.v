@@ -14,21 +14,32 @@
       Section 3: Clairvoyant [glueA'] + monotonicity helpers.
       Section 4: Demand function [glueD'].
       Section 5: Cost lemma [glueD'_cost] and corollary [concatD_cost].
-      Section 6: Demand-correctness [glueD'_approx] (proved) and the
-                 asymptotic [O(log n)] corollary.
+      Section 6: Demand-correctness [glueD'_approx] (proved, axiom-free)
+                 and the asymptotic [O(log n)] corollary.
+      Section 7: Full specification [glueD'_spec] — IN PROGRESS.
 
-    SCOPE: this file proves the **worst-case [O(log n)] cost bound** on
-    [concat] (Claim 1 of the thesis) and the **demand-approximation
-    obligation** [glueD'_approx] (with corollary [concatD_approx]).  The
-    [unbundle] helper is a faithful inverse of the tuple bundling (its
-    agreement is [tupleArities_spec]), so the computed demands on [s1],
-    the middle list, and [s2] all under-approximate their inputs.  All
-    lemmas here are closed under the global context (axiom-free).
+    SCOPE: this is the single canonical concat development (it supersedes
+    [FingerConcatAlt.v], which is being retired).  Fully proved and
+    closed under the global context (axiom-free): the worst-case
+    [O(log n)] cost bound on [concat] (Claim 1), and the demand-
+    approximation obligation [glueD'_approx] / [concatD_approx], resting
+    on the faithful [unbundle] inverse (agreement: [tupleArities_spec]).
 
-    The full unbundled specification [glueD'_spec] (demand approximation
-    combined with computation-cost agreement) remains future work and is
-    developed in [FingerConcatAlt.v], where it and its base-case helper
-    [foldr_fconsA_undef_spec] are still admitted.  *)
+    The demand function [glueD'] now records the *real* element demands in
+    every arm (the deep arm via [unbundle]; the fold arms via
+    [foldr_fcons_elems] / [foldl_fsnoc_elems], whose per-element demands are
+    read off [outD] by [fcons_elemD] / [fsnoc_elemD]).  This is what makes
+    [glueD'_spec] true at all: the earlier cost-only [glueD'] discarded those
+    demands ([asD = map (fun _ => Undefined) as_]), so no clairvoyant run
+    could reconstruct an [outD] that demanded a middle element.
+
+    OPEN OBLIGATION (still [Admitted], the work of branch [concat-continue]):
+    the full unbundled specification [glueD'_spec] (demand reconstruction +
+    cost agreement).  Its kernel is the single-step lemma [fconsA_elemD_step]
+    (extracted element demand + any [q >= spine demand] reconstructs [outD]);
+    the deep [More]/[More] arm needs the [IHm] + [glueA'_mon] + [unbundle]
+    roundtrip lockstep.  Nothing else depends on it, so the axiom-free
+    results above are unaffected.  *)
 
 From Coq Require Import Arith Psatz Relations RelationClasses List.
 From Clairvoyance Require Import Core Approx ApproxM Tick Prod Option.
@@ -612,11 +623,75 @@ Fixpoint foldl_fsnocD' (A B : Type) `{Exact A B}
   end.
 
 
+(** *** Per-element demand extraction for the fold arms.
+
+    [fconsD'] / [fsnocD'] compute the demand on the input element [x] but
+    discard it, returning only the spine demand.  For the [glueD'_spec]
+    direction we need those element demands back: they populate [asD] so the
+    clairvoyant fold can reconstruct [outD].  [fcons_elemD] reads the demand on
+    the front element of [fcons x s] straight out of [outD] (its position
+    depends only on the front digit of [s], exactly as in [fconsD']);
+    [fsnoc_elemD] does the dual at the rear. *)
+
+Definition fcons_elemD {A B : Type} `{Exact A B} (s : Seq A) (outD : SeqA B) : T B :=
+  match s, outD with
+  | Nil,                    UnitA xD                          => xD
+  | Unit _,                 MoreA (Thunk (OneA xD)) _ _       => xD
+  | More (One _) _ _,       MoreA (Thunk (TwoA xD _)) _ _     => xD
+  | More (Two _ _) _ _,     MoreA (Thunk (ThreeA xD _ _)) _ _ => xD
+  | More (Three _ _ _) _ _, MoreA (Thunk (TwoA xD _)) _ _     => xD
+  | _, _ => Undefined
+  end.
+
+Definition fsnoc_elemD {A B : Type} `{Exact A B} (s : Seq A) (outD : SeqA B) : T B :=
+  match s, outD with
+  | Nil,                    UnitA xD                          => xD
+  | Unit _,                 MoreA _ _ (Thunk (OneA xD))       => xD
+  | More _ _ (One _),       MoreA _ _ (Thunk (TwoA _ xD))     => xD
+  | More _ _ (Two _ _),     MoreA _ _ (Thunk (ThreeA _ _ xD)) => xD
+  | More _ _ (Three _ _ _), MoreA _ _ (Thunk (TwoA _ xD))     => xD
+  | _, _ => Undefined
+  end.
+
+(** Element-demand lists, threaded identically to [foldr_fconsD'] /
+    [foldl_fsnocD'].  Pure (no [Tick]) so they add no cost to [glueD']. *)
+
+Fixpoint foldr_fcons_elems (A B : Type) `{Exact A B}
+    (as_ : list A) (s_2 : Seq A) (outD : SeqA B) : list (T B) :=
+  match as_ with
+  | [] => []
+  | x :: as' =>
+      let s := List.fold_right fcons s_2 as' in
+      let xD := fcons_elemD s outD in
+      let innerD := Tick.val (fconsD' x s outD) in
+      let innerD_forced := match innerD with
+                           | Thunk q => q
+                           | Undefined => bottom_of (exact s)
+                           end in
+      xD :: foldr_fcons_elems as' s_2 innerD_forced
+  end.
+
+Fixpoint foldl_fsnoc_elems (A B : Type) `{Exact A B}
+    (as_ : list A) (s_1 : Seq A) (outD : SeqA B) {struct as_} : list (T B) :=
+  match as_ with
+  | [] => []
+  | x :: as' =>
+      let innerD := Tick.val (foldl_fsnocD' as' (fsnoc s_1 x) outD) in
+      let innerD_forced := match innerD with
+                           | Thunk q => q
+                           | Undefined => bottom_of (exact (fsnoc s_1 x))
+                           end in
+      let xD := fsnoc_elemD s_1 innerD_forced in
+      xD :: foldl_fsnoc_elems as' (fsnoc s_1 x) outD
+  end.
+
+
 (** *** [glueD']: the demand function for [glue].
 
     Six cases mirroring [glue]'s structure.  The deep case uses
-    [unbundle] (stubbed) to split the recursive middle demand back into
-    demands on [v1], [as_], [u2]. *)
+    [unbundle] to split the recursive middle demand back into demands on
+    [v1], [as_], [u2]; the fold arms recover their element demands via
+    [foldr_fcons_elems] / [foldl_fsnoc_elems]. *)
 Fixpoint glueD' (A B : Type) `{Exact A B}
     (s1 : Seq A) (as_ : list A) (s2 : Seq A) (outD : SeqA B)
     {struct s1} : Tick (T (SeqA B) * list (T B) * T (SeqA B)) :=
@@ -625,27 +700,36 @@ Fixpoint glueD' (A B : Type) `{Exact A B}
   | Nil, _ =>
       (* glue Nil as_ s_2 = foldr fcons s_2 as_ *)
       let+ s2D := foldr_fconsD' as_ s2 outD in
-      Tick.ret (Thunk NilA, List.map (fun _ => Undefined) as_, s2D)
+      Tick.ret (Thunk NilA, foldr_fcons_elems as_ s2 outD, s2D)
 
   | Unit x, Nil =>
       (* glue (Unit x) as_ Nil = foldl fsnoc (Unit x) as_ *)
       let+ s1D := foldl_fsnocD' as_ (Unit x) outD in
-      Tick.ret (s1D, List.map (fun _ => Undefined) as_, Thunk NilA)
+      Tick.ret (s1D, foldl_fsnoc_elems as_ (Unit x) outD, Thunk NilA)
 
   | More u1 m1 v1, Nil =>
       (* glue (More u_1 m_1 v_1) as_ Nil = foldl fsnoc (More u_1 m_1 v_1) as_ *)
       let+ s1D := foldl_fsnocD' as_ (More u1 m1 v1) outD in
-      Tick.ret (s1D, List.map (fun _ => Undefined) as_, Thunk NilA)
+      Tick.ret (s1D, foldl_fsnoc_elems as_ (More u1 m1 v1) outD, Thunk NilA)
 
   | Unit x, _ =>
-      (* glue (Unit x) as_ s_2 = foldr fcons s_2 (x :: as_) *)
+      (* glue (Unit x) as_ s_2 = foldr fcons s_2 (x :: as_).
+         The head element demand is [x]'s (it becomes the [UnitA] content);
+         the tail is the demand on [as_]. *)
       let+ s2D := foldr_fconsD' (x :: as_) s2 outD in
-      Tick.ret (Thunk (UnitA Undefined), List.map (fun _ => Undefined) as_, s2D)
+      match foldr_fcons_elems (x :: as_) s2 outD with
+      | xD :: asD => Tick.ret (Thunk (UnitA xD), asD, s2D)
+      | []        => Tick.ret (Thunk (UnitA Undefined), [], s2D)
+      end
 
   | More u1 m1 v1, Unit y =>
-      (* glue (More u_1 m_1 v_1) as_ (Unit y) = foldl fsnoc (More u_1 m_1 v_1) (as_ ++ [y]) *)
+      (* glue (More u_1 m_1 v_1) as_ (Unit y) = foldl fsnoc (More u_1 m_1 v_1) (as_ ++ [y]).
+         The first [|as_|] element demands are [as_]'s; the last is [y]'s (it
+         becomes the [UnitA] content of [s2D]). *)
       let+ s1D := foldl_fsnocD' (as_ ++ [y]) (More u1 m1 v1) outD in
-      Tick.ret (s1D, List.map (fun _ => Undefined) as_, Thunk (UnitA Undefined))
+      let elemsD := foldl_fsnoc_elems (as_ ++ [y]) (More u1 m1 v1) outD in
+      Tick.ret (s1D, List.firstn (List.length as_) elemsD,
+                Thunk (UnitA (List.nth (List.length as_) elemsD Undefined)))
 
   | More u1 m1 v1, More u2 m2 v2 =>
       match outD with
@@ -983,6 +1067,118 @@ Proof.
     exact Hf.
 Qed.
 
+(** *** The extracted element demands under-approximate their elements.
+
+    These discharge the [asD] component of [glueD'_approx] now that the fold
+    arms record real demands instead of [Undefined]. *)
+
+Ltac invert_ld_struct :=
+  repeat (match goal with
+          | Hd : (UnitA _)      `less_defined` _ |- _ => invert_clear Hd
+          | Hd : (MoreA _ _ _)  `less_defined` _ |- _ => invert_clear Hd
+          | Hd : (OneA _)       `less_defined` _ |- _ => invert_clear Hd
+          | Hd : (TwoA _ _)     `less_defined` _ |- _ => invert_clear Hd
+          | Hd : (ThreeA _ _ _) `less_defined` _ |- _ => invert_clear Hd
+          | Hd : (Thunk _)      `less_defined` _ |- _ => invert_clear Hd
+          end).
+
+Lemma fcons_elemD_approx (A B : Type) `{LDB : LessDefined B, !Reflexive LDB, Exact A B}
+    (x : A) (s : Seq A) (outD : SeqA B) :
+  outD `is_approx` fcons x s ->
+  fcons_elemD s outD `less_defined` exact x.
+Proof.
+  intro Happrox. cbn [fcons] in Happrox.
+  destruct s as [ | y | [a|a b|a b c] m r ];
+    destruct outD as [ | xD | fD mD rD ];
+    try (destruct fD as [ [ x1 | x1 x2 | x1 x2 x3 ] | ]);
+    cbn [fcons_elemD];
+    try solve [ constructor ];
+    invert_ld_struct; try assumption; try solve [ constructor ].
+Qed.
+
+Lemma fsnoc_elemD_approx (A B : Type) `{LDB : LessDefined B, !Reflexive LDB, Exact A B}
+    (x : A) (s : Seq A) (outD : SeqA B) :
+  outD `is_approx` fsnoc s x ->
+  fsnoc_elemD s outD `less_defined` exact x.
+Proof.
+  intro Happrox. cbn [fsnoc] in Happrox.
+  destruct s as [ | y | f m [a|a b|a b c] ];
+    destruct outD as [ | xD | fD mD rD ];
+    try (destruct rD as [ [ x1 | x1 x2 | x1 x2 x3 ] | ]);
+    cbn [fsnoc_elemD];
+    try solve [ constructor ];
+    invert_ld_struct; try assumption; try solve [ constructor ].
+Qed.
+
+Lemma foldr_fcons_elems_approx (A B : Type) `{LDB : LessDefined B, !Reflexive LDB, Exact A B}
+    (as_ : list A) (s_2 : Seq A) (outD : SeqA B) :
+  outD `is_approx` List.fold_right fcons s_2 as_ ->
+  Forall2 less_defined (foldr_fcons_elems as_ s_2 outD) (List.map exact as_).
+Proof.
+  revert s_2 outD.
+  induction as_ as [| x as' IH]; intros s_2 outD Happrox.
+  - simpl. constructor.
+  - cbn [List.fold_right] in Happrox.
+    cbn [foldr_fcons_elems List.map].
+    set (s := List.fold_right fcons s_2 as') in *.
+    constructor.
+    + eapply fcons_elemD_approx; eauto.
+    + apply IH.
+      pose proof (@fconsD'_approx A B _ _ _ x s outD Happrox) as Hin.
+      destruct (Tick.val (fconsD' x s outD)) as [ q | ] eqn:Eq.
+      * cbn. invert_clear Hin. assumption.
+      * cbn. apply bottom_is_least. reflexivity.
+Qed.
+
+Lemma foldl_fsnoc_elems_approx (A B : Type) `{LDB : LessDefined B, !Reflexive LDB, Exact A B}
+    (as_ : list A) (s_1 : Seq A) (outD : SeqA B) :
+  outD `is_approx` List.fold_left fsnoc as_ s_1 ->
+  Forall2 less_defined (foldl_fsnoc_elems as_ s_1 outD) (List.map exact as_).
+Proof.
+  revert s_1 outD.
+  induction as_ as [| x as' IH]; intros s_1 outD Happrox.
+  - simpl. constructor.
+  - cbn [List.fold_left] in Happrox.
+    cbn [foldl_fsnoc_elems List.map].
+    pose proof (@foldl_fsnocD'_approx A B _ _ _ as' (fsnoc s_1 x) outD Happrox) as Hin.
+    assert (Hpre : (match Tick.val (foldl_fsnocD' as' (fsnoc s_1 x) outD) with
+                    | Thunk q => q
+                    | Undefined => bottom_of (exact (fsnoc s_1 x))
+                    end) `is_approx` fsnoc s_1 x).
+    { destruct (Tick.val (foldl_fsnocD' as' (fsnoc s_1 x) outD)) as [ q | ] eqn:Eq.
+      - cbn. invert_clear Hin. assumption.
+      - cbn. apply bottom_is_least. reflexivity. }
+    constructor.
+    + eapply fsnoc_elemD_approx; eauto.
+    + apply IH. exact Happrox.
+Qed.
+
+(** NOTE: the old [foldr_fconsA_undef_spec] (clairvoyant fold over an
+    all-[Undefined] middle dominates [outD]) was removed: it is *false*.
+    Concretely, [glue Nil [a] Nil = Unit a] with [outD = UnitA (Thunk a)]
+    demands the element [a], but the all-[Undefined] reconstruction can only
+    produce [UnitA Undefined].  The fix was to make [glueD'] record the real
+    element demands ([foldr_fcons_elems]); [glueD'_spec] now reconstructs
+    [outD] from those via [fconsA_elemD_step] (work of [concat-continue]). *)
+
+Lemma foldr_fconsD'_val_thunk (A B : Type) `{LDB : LessDefined B, !Reflexive LDB, Exact A B}
+    (as_ : list A) (s_2 : Seq A) (outD : SeqA B) :
+  exists q, Tick.val (foldr_fconsD' as_ s_2 outD) = Thunk q.
+Proof.
+  revert s_2 outD.
+  induction as_ as [| x as' IH]; intros s_2 outD.
+  - cbn [foldr_fconsD']. eexists. reflexivity.
+  - cbn [foldr_fconsD'].
+    (* foldr_fconsD' (x::as') = let+ innerD := fconsD' x … in foldr_fconsD' as' … innerD_forced.
+       Tick.val of that = Tick.val (foldr_fconsD' as' … innerD_forced), a Thunk by IH. *)
+    destruct (IH s_2 (match Tick.val (fconsD' x (List.fold_right fcons s_2 as') outD) with
+                      | Thunk q => q
+                      | Undefined => bottom_of (exact (List.fold_right fcons s_2 as'))
+                      end)) as [q Hq].
+    eexists. (* the bind's val reduces to the recursive call's val *)
+    cbn [Tick.bind Tick.val]. (* expose the structure *)
+    exact Hq.
+Qed.
 
 
 Lemma fsnoc_depth (A : Type) (s : Seq A) (x : A) :
@@ -1429,6 +1625,27 @@ Proof.
     + simpl. apply IHn; exact HF.
 Qed.
 
+Lemma Forall2_nth {X Y : Type} (R : X -> Y -> Prop) :
+  forall (l : list X) (l' : list Y) (n : nat) (dx : X) (dy : Y),
+    Forall2 R l l' -> n < List.length l -> R (List.nth n l dx) (List.nth n l' dy).
+Proof.
+  intros l l' n dx dy HF. revert n.
+  induction HF as [| x y l l' Hxy HF IH]; intros n Hn.
+  - simpl in Hn. lia.
+  - destruct n as [| n].
+    + exact Hxy.
+    + simpl. apply IH. simpl in Hn. lia.
+Qed.
+
+Lemma foldl_fsnoc_elems_length (A B : Type) `{Exact A B}
+    (as_ : list A) (s_1 : Seq A) (outD : SeqA B) :
+  List.length (foldl_fsnoc_elems as_ s_1 outD) = List.length as_.
+Proof.
+  revert s_1 outD. induction as_ as [| x as' IH]; intros s_1 outD.
+  - reflexivity.
+  - cbn [foldl_fsnoc_elems List.length]. f_equal. apply IH.
+Qed.
+
 Lemma glueD'_approx :
   forall (A : Type) (s1 : Seq A)
          (B : Type) `{LDB : LessDefined B, !Reflexive LDB, Exact A B}
@@ -1455,7 +1672,7 @@ Proof.
   (* === Case 1: s1 = Nil ===                                        *)
   (* =============================================================== *)
   - intros A0 B0 LDB0 Refl0 EAB0 as_ s2 outD Hlen_as Happrox.
-    Local Opaque foldr_fconsD' foldl_fsnocD'.
+    Local Opaque foldr_fconsD' foldl_fsnocD' foldr_fcons_elems foldl_fsnoc_elems.
     cbn [glueD']. cbv zeta.
     (* val = (Thunk NilA, map (fun _=>Undefined) as_, Tick.val (foldr_fconsD' as_ s2 outD)) *)
     cbn [glue] in Happrox.
@@ -1464,7 +1681,7 @@ Proof.
     split; [ | split ].
     + (* Thunk NilA ≤ exact Nil *)
       apply LessDefined_Thunk. reflexivity.
-    + apply Forall2_map_Undefined.
+    + apply (@foldr_fcons_elems_approx A0 B0 _ _ _ as_ s2 outD Happrox).
     + (* Tick.val (foldr_fconsD' as_ s2 outD) ≤ exact s2 *)
       exact Hs2.
 
@@ -1472,7 +1689,7 @@ Proof.
   (* === Case 2: s1 = Unit x ===                                     *)
   (* =============================================================== *)
   - intros A0 x B0 LDB0 Refl0 EAB0 as_ s2 outD Hlen_as Happrox.
-    Local Opaque foldr_fconsD' foldl_fsnocD'.
+    Local Opaque foldr_fconsD' foldl_fsnocD' foldr_fcons_elems foldl_fsnoc_elems.
     destruct s2 as [ | y | u2 m2 v2 ].
 
     + (* s2 = Nil : arm 2, foldl_fsnocD' as_ (Unit x) *)
@@ -1482,35 +1699,46 @@ Proof.
       simpl Tick.val.
       split; [ | split ].
       * exact Hs1.
-      * apply Forall2_map_Undefined.
+      * apply (@foldl_fsnoc_elems_approx A0 B0 _ _ _ as_ (Unit x) outD Happrox).
       * apply LessDefined_Thunk. reflexivity.                              (* Thunk NilA ≤ exact Nil *)
 
     + (* s2 = Unit y : arm 4, foldr_fconsD' (x :: as_) (Unit y) *)
-      cbn [glueD']. cbv zeta.
       cbn [glue] in Happrox.
       pose proof (@foldr_fconsD'_approx A0 B0 _ _ _ (x :: as_) (Unit y) outD Happrox) as Hs2.
-      simpl Tick.val.
-      split; [ | split ].
-      * (* Thunk (UnitA Undefined) ≤ exact (Unit x) = UnitA (exact x) *)
-        constructor. constructor. apply LessDefined_Undefined.
-      * apply Forall2_map_Undefined.
-      * exact Hs2.
+      pose proof (@foldr_fcons_elems_approx A0 B0 _ _ _ (x :: as_) (Unit y) outD Happrox) as Helems.
+      cbn [List.map] in Helems.
+      cbn [glueD']. cbv zeta.
+      destruct (foldr_fcons_elems (x :: as_) (Unit y) outD) as [ | xD asD' ] eqn:He.
+      * inversion Helems.
+      * invert_clear Helems.
+        simpl Tick.val.
+        split; [ | split ].
+        -- (* Thunk (UnitA xD) ≤ exact (Unit x) *)
+           constructor. constructor. assumption.
+        -- assumption.
+        -- exact Hs2.
 
     + (* s2 = More u2 m2 v2 : arm 4 again (same Unit-front branch) *)
-      cbn [glueD']. cbv zeta.
       cbn [glue] in Happrox.
       pose proof (@foldr_fconsD'_approx A0 B0 _ _ _ (x :: as_) (More u2 m2 v2) outD Happrox) as Hs2.
-      simpl Tick.val.
-      split; [ | split ].
-      * constructor. constructor. apply LessDefined_Undefined.  (* Thunk (UnitA Undefined) ≤ exact (Unit x) *)
-      * apply Forall2_map_Undefined.
-      * exact Hs2.
+      pose proof (@foldr_fcons_elems_approx A0 B0 _ _ _ (x :: as_) (More u2 m2 v2) outD Happrox) as Helems.
+      cbn [List.map] in Helems.
+      cbn [glueD']. cbv zeta.
+      destruct (foldr_fcons_elems (x :: as_) (More u2 m2 v2) outD) as [ | xD asD' ] eqn:He.
+      * inversion Helems.
+      * invert_clear Helems.
+        simpl Tick.val.
+        split; [ | split ].
+        -- (* Thunk (UnitA xD) ≤ exact (Unit x) *)
+           constructor. constructor. assumption.
+        -- assumption.
+        -- exact Hs2.
 
   (* =============================================================== *)
   (* === Case 3: s1 = More f m r ===                                 *)
   (* =============================================================== *)
   - intros A0 f m r IHm B0 LDB0 Refl0 EAB0 as_ s2 outD Hlen_as Happrox.
-    Local Opaque foldr_fconsD' foldl_fsnocD'.
+    Local Opaque foldr_fconsD' foldl_fsnocD' foldr_fcons_elems foldl_fsnoc_elems.
     destruct s2 as [ | y | u2 m2 v2 ].
 
     + (* s2 = Nil : arm 3, foldl_fsnocD' as_ (More f m r) *)
@@ -1520,19 +1748,38 @@ Proof.
       simpl Tick.val.
       split; [ | split ].
       * exact Hs1.
-      * apply Forall2_map_Undefined.
+      * apply (@foldl_fsnoc_elems_approx A0 B0 _ _ _ as_ (More f m r) outD Happrox).
       * apply LessDefined_Thunk. reflexivity.                              (* Thunk NilA ≤ exact Nil *)
 
     + (* s2 = Unit y : arm 5, foldl_fsnocD' (as_ ++ [y]) (More f m r) *)
-      cbn [glueD']. cbv zeta.
       cbn [glue] in Happrox.
       pose proof (@foldl_fsnocD'_approx A0 B0 _ _ _ (as_ ++ [y]) (More f m r) outD Happrox) as Hs1.
+      pose proof (@foldl_fsnoc_elems_approx A0 B0 _ _ _ (as_ ++ [y]) (More f m r) outD Happrox) as Helems.
+      rewrite List.map_app in Helems. cbn [List.map] in Helems.
+      cbn [glueD']. cbv zeta.
       simpl Tick.val.
       split; [ | split ].
       * exact Hs1.
-      * apply Forall2_map_Undefined.
-      * (* Thunk (UnitA Undefined) ≤ exact (Unit y) *)
-        constructor. constructor. apply LessDefined_Undefined.
+      * (* Forall2 (firstn |as_| elemsD) (map exact as_) *)
+        pose proof (@Forall2_firstn (T B0) (T B0) less_defined (List.length as_) _ _ Helems) as Hfn.
+        rewrite List.firstn_app in Hfn.
+        rewrite List.map_length in Hfn.
+        rewrite Nat.sub_diag in Hfn.
+        cbn [List.firstn] in Hfn. rewrite List.app_nil_r in Hfn.
+        set (lhsF := List.firstn (List.length as_)
+                       (foldl_fsnoc_elems (as_ ++ [y]) (More f m r) outD)) in Hfn.
+        rewrite List.firstn_all2 in Hfn by (rewrite List.map_length; lia).
+        exact Hfn.
+      * (* Thunk (UnitA (nth |as_| elemsD Undefined)) ≤ exact (Unit y) *)
+        constructor. constructor.
+        assert (Hbound : List.length as_ <
+                         List.length (foldl_fsnoc_elems (as_ ++ [y]) (More f m r) outD)).
+        { rewrite foldl_fsnoc_elems_length, List.app_length. cbn [List.length]. lia. }
+        pose proof (@Forall2_nth (T B0) (T B0) less_defined _ _
+                      (List.length as_) Undefined (exact y) Helems Hbound) as Hnth.
+        rewrite app_nth2 in Hnth by (rewrite List.map_length; lia).
+        rewrite List.map_length, Nat.sub_diag in Hnth. cbn [List.nth] in Hnth.
+        exact Hnth.
 
     + (* s2 = More u2 m2 v2 : ARM 6 — deep recursive case *)
           destruct outD as [ | | u1D m'D v2D ].
@@ -1732,6 +1979,112 @@ Proof.
 Qed.
 
 
+(** *** [glueD'_exact]: full-demand case. *)
+(* Lemma glueD'_exact (A B : Type) `{Exact A B}
+    (s1 : Seq A) (as_ : list A) (s2 : Seq A) :
+  let '(s1D, asD, s2D) := Tick.val (glueD' s1 as_ s2 (exact (glue s1 as_ s2))) in
+  s1D = exact s1 /\
+  asD = List.map exact as_ /\
+  s2D = exact s2.
+Proof.
+  (* Requires correct unbundle.  Not needed for Claim 1. *)
+Admitted. *)
+
+Lemma glue_middle_len_bound {A : Type} (r u2 : Digit A) (as_ : list A) :
+  length as_ <= 3 ->
+  length (toTuples (digitToList r ++ as_ ++ digitToList u2)) <= 3.
+Proof.
+  intro H. apply toTuples_length_bound.
+  rewrite !List.app_length. destruct r, u2; cbn [digitToList List.length]; lia.
+Qed.
+
+
+#[local] Existing Instance Reflexive_LessDefined_T.
+#[local] Existing Instance Reflexive_LessDefined_prodA.
+
+
+
+(** *** [glueD'_spec]: clairvoyant dominates demand. *)
+Lemma glueD'_spec :
+  forall (A : Type) (s1 : Seq A)
+         (B : Type) `{LDB : LessDefined B, !Reflexive LDB, !Transitive LDB, Exact A B}
+         (as_ : list A) (s2 : Seq A) (outD : SeqA B),
+    List.length as_ <= 3 ->
+    outD `is_approx` glue s1 as_ s2 ->
+    forall s1D asD s2D,
+      (s1D, asD, s2D) = Tick.val (glueD' s1 as_ s2 outD) ->
+      let dcost := Tick.cost (glueD' s1 as_ s2 outD) in
+      glueA s1D asD s2D
+      [[ fun out cost => outD `less_defined` out /\ cost <= dcost ]].
+Proof.
+  apply (Seq_ind_poly
+    (fun (A : Type) (s1 : Seq A) =>
+       forall (B : Type) `{LDB : LessDefined B, !Reflexive LDB, !Transitive LDB, Exact A B}
+              (as_ : list A) (s2 : Seq A) (outD : SeqA B),
+         List.length as_ <= 3 ->
+         outD `is_approx` glue s1 as_ s2 ->
+         forall s1D asD s2D,
+           (s1D, asD, s2D) = Tick.val (glueD' s1 as_ s2 outD) ->
+           let dcost := Tick.cost (glueD' s1 as_ s2 outD) in
+           glueA s1D asD s2D
+           [[ fun out cost => outD `less_defined` out /\ cost <= dcost ]])).
+
+  (* ------------------------------------------------------------------ *)
+  (* Six admits below.  Plan + per-session orchestration:               *)
+  (*   docs/CONCAT_SPEC_PLAN.md.    Kernel lemma + harness: wip/.        *)
+  (* Inspect any arm's exact goal with wip/inspect.v (copy the block,    *)
+  (* set s1/s2, idtac the goal).  Order: Nil -> Unit/_ -> snoc arms ->   *)
+  (* deep More/More (hardest).                                           *)
+  (* ------------------------------------------------------------------ *)
+
+  - (* === s1 = Nil === *)
+    intros A0 B0 LDB0 Refl0 Trans0 EAB0 as_ s2 outD Hlen Happrox s1D asD s2D Htriple dcost.
+    (* Goal after [cbn glueD'; invert_clear Htriple; unfold glueA; destruct
+       (Tick.val (foldr_fconsD' as_ s2 outD)) as [q2|]; simpl; mgo_]:
+         fold_right (fun x acc => let! q := acc in fconsA' q x)
+                    (ret q2) (foldr_fcons_elems as_ s2 outD)
+         [[ fun y m => outD <= y /\ S m <= S (Tick.cost (foldr_fconsD' as_ s2 outD) + 0) ]]
+       STRATEGY: eapply foldr_fcons_clairvoyant_spec (the fold helper, TODO),
+       which itself runs by induction on as_ using fconsA_elemD_step (wip/).
+       The [Undefined] sub-branch is vacuous via foldr_fconsD'_val_thunk. *)
+    admit.
+
+  - (* === s1 = Unit x === *)
+    intros A0 x B0 LDB0 Refl0 Trans0 EAB0 as_ s2 outD Hlen Happrox s1D asD s2D Htriple dcost.
+    destruct s2 as [ | y | u2 m2 v2 ].
+    + (* arm 2: glue (Unit x) as_ Nil = foldl fsnoc (Unit x) as_.
+         s1D = foldl_fsnocD' val, asD = foldl_fsnoc_elems as_ (Unit x) outD,
+         s2D = Thunk NilA.  STRATEGY: foldl_fsnoc_clairvoyant_spec (snoc fold
+         helper, TODO) via fsnocA_elemD_step. *)
+      admit.
+    + (* arm 4: glue (Unit x) as_ (Unit y) = foldr fcons (Unit y) (x :: as_).
+         glueD' splits: s1D = Thunk (UnitA (head elems)), asD = tail elems.
+         STRATEGY: foldr_fcons_clairvoyant_spec on (x :: as_); the head feeds
+         the UnitA, the tail feeds asD. *)
+      admit.
+    + (* arm 4 again, s2 = More u2 m2 v2 (same Unit-front branch as above). *)
+      admit.
+
+  - (* === s1 = More f m r === *)
+    intros A0 f m r IHm B0 LDB0 Refl0 Trans0 EAB0 as_ s2 outD Hlen Happrox s1D asD s2D Htriple dcost.
+    destruct s2 as [ | y | u2 m2 v2 ].
+    + (* arm 3: glue (More f m r) as_ Nil = foldl fsnoc (More f m r) as_.
+         Like arm 2 with accumulator (More f m r).  foldl_fsnoc_clairvoyant_spec. *)
+      admit.
+    + (* arm 5: glue (More f m r) as_ (Unit y) = foldl fsnoc (More..) (as_ ++ [y]).
+         glueD' splits with firstn |as_| / nth |as_|.  foldl helper on
+         (as_ ++ [y]); first |as_| demands feed asD, the last feeds the UnitA. *)
+      admit.
+    + (* arm 6: DEEP More/More — the hard lockstep.  outD = MoreA u1D m'D v2D.
+         glueA' recurses on the middle; glueD' recursed via unbundle.  Need:
+           IHm (the Seq_ind_poly hypothesis at Tuple level) for the middle,
+           glueA'_mon for monotonicity of the recursive clairvoyant call,
+           and the unbundle ROUND-TRIP on the spec side: that re-bundling the
+           sliced (v1D | asD | u2D) reproduces the middle demand middleD.
+           This last is the dual of unbundle_flat_approx and is the likely new
+           lemma to write.  SPIKE THIS EARLY (see plan §3, Session A). *)
+      admit.
+Admitted.
 
 (* ================================================================= *)
 (** ** Section 5b: Asymptotic [O(log n)] corollary                     *)
