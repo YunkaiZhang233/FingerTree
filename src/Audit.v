@@ -76,12 +76,20 @@ Print Assumptions FingerConcat.concatD_cost.
 Locate concatD_cost_O_log_n.
 Print Assumptions FingerConcat.concatD_cost_O_log_n.
 
-(** ===== Random access and split: worst-case O(log n) cost ===== *)
+(** ===== Random access: demand-correctness + worst-case O(log n) ===== *)
 
+Locate indexD_approx.
+Print Assumptions FingerSplit.indexD_approx.
+Locate indexD_spec.
+Print Assumptions FingerSplit.indexD_spec.
+Locate index_spec.
+Print Assumptions FingerSplit.index_spec.
 Locate indexD_cost.
 Print Assumptions FingerSplit.indexD_cost.
 Locate index_O_log_n.
 Print Assumptions FingerSplit.index_O_log_n.
+
+(** ===== Split: worst-case O(log n) cost ===== *)
 
 Locate splitTreeD_cost.
 Print Assumptions FingerSplit.splitTreeD_cost.
