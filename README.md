@@ -59,16 +59,19 @@ The debt sub-additivity machinery (`debt_SeqA_lub_subadditive` and friends),
 needed for `WellDefinedPotential`, lives once in **`FingerCore.v`** and is
 shared by every operation.
 
-### Secondary results — O(log n) worst-case (cost proven, correctness pending)
+### Secondary results — O(log n) worst-case
 
-| Result                                   | Statement (cost bound)                          | File              | Status                |
-|------------------------------------------|-------------------------------------------------|-------------------|-----------------------|
-| `concat` / Claessen's `glue`             | `concatD_cost`, `concatD_cost_O_log_n`          | `FingerConcat.v`  | cost ✅ / correctness ⏳ |
-| `index` / `splitTree` (measure-annotated)| `indexD_cost`, `splitTreeD_cost`, `*_O_log_n`   | `FingerSplit.v`   | cost ✅ / correctness ⏳ |
+| Result                                   | Statement                                                     | File              | Status                |
+|------------------------------------------|---------------------------------------------------------------|-------------------|-----------------------|
+| `concat` / Claessen's `glue`             | `concatD_cost*` (cost); `glueD'_approx` / `glueD'_spec` (correctness) | `FingerConcat.v`  | cost ✅ / correctness ✅ |
+| `index` / `splitTree` (measure-annotated)| `indexD_cost`, `splitTreeD_cost`, `*_O_log_n`                 | `FingerSplit.v`   | cost ✅ / correctness ⏳ |
 
-For these two, the **worst-case O(log n) cost bounds are fully proven**; the
-functional-correctness lemmas (`_approx` / `_spec`) are `Admitted` as scoped
-future work (5 in `FingerConcat.v`, 2 in `FingerSplit.v`). The `O(log n)`
+`concat` / `glue` is now **fully proven and assumption-free** — both the
+worst-case O(log n) cost bound *and* demand-correctness (`glueD'_approx`,
+`glueD'_spec`); `Print Assumptions glueD'_spec` reports "Closed under the global
+context". For `index` / `splitTree`, the **worst-case O(log n) cost bounds are
+fully proven** while the functional-correctness lemmas (`_approx` / `_spec`)
+remain `Admitted` as scoped future work (2 in `FingerSplit.v`). The `O(log n)`
 asymptotics rest on `size_lower_bound` / `depth_log_size` in `FingerSize.v`.
 `FingerSplit.v` works over an abstract measure **`Monoid`** (`FingerMonoid.v`),
 recovering random access, min-max queues, and ordered sequences à la
@@ -88,7 +91,7 @@ src/FingerHead.v        head   + demand analysis + proofs
 src/FingerTail.v        ftail  + demand analysis + proofs (the cascade / chop trick)
 src/FingerPhysicist.v   empty + operation algebra + reverse physicist's method  ← main theorem
 src/FingerSize.v        size / depth metrics; size_lower_bound, depth_log_size
-src/FingerConcat.v      concat / glue; worst-case O(log n) cost bound
+src/FingerConcat.v      concat / glue; O(log n) cost bound + demand-correctness (glueD'_approx/_spec)
 src/FingerMonoid.v      measure-monoid interface (size / interval / last-value)
 src/FingerSplit.v       measure-annotated trees; O(log n) index & split cost bounds
 
@@ -157,8 +160,9 @@ Print Assumptions amortized_cost.
 ```
 
 You should see only `Classical_Prop.classic` (excluded middle, inherited from
-the upstream library). The `Admitted` lemmas listed above are confined to the
-correctness side of `concat`/`split` and do **not** feed into `amortized_cost`.
+the upstream library). The remaining `Admitted` lemmas are confined to the
+correctness side of `split` (`FingerConcat.v` is now admit-free) and do **not**
+feed into `amortized_cost`.
 
 ---
 
@@ -174,7 +178,7 @@ correctness side of `concat`/`split` and do **not** feed into `amortized_cost`.
 | `FingerPhysicist.v`  |  13   |     0      | complete — `amortized_cost`                  |
 | `FingerSize.v`       |   5   |     0      | complete                                     |
 | `FingerMonoid.v`     |   2   |     0      | complete                                     |
-| `FingerConcat.v`     |  18   |     5      | cost proven; correctness future work         |
+| `FingerConcat.v`     |  54   |     0      | complete — cost **and** demand-correctness    |
 | `FingerSplit.v`      |  16   |     2      | cost proven; correctness future work         |
 
 ---
