@@ -66,14 +66,22 @@ shared by every operation.
 | Result                                   | Statement                                                     | File              | Status                |
 |------------------------------------------|---------------------------------------------------------------|-------------------|-----------------------|
 | `concat` / Claessen's `glue`             | `concatD_cost*` (cost); `glueD'_approx` / `glueD'_spec` (correctness) | `FingerConcat.v`  | cost ✅ / correctness ✅ |
-| `index` / `splitTree` (measure-annotated)| `indexD_cost`, `splitTreeD_cost`, `*_O_log_n`                 | `FingerSplit.v`   | cost ✅ / correctness ⏳ |
+| `index` (measure-annotated random access)| `indexD_cost`, `index_O_log_n` (cost); `indexD_approx` / `indexD_spec` / `index_spec` (correctness) | `FingerSplit.v`   | cost ✅ / correctness ✅ |
+| `splitTree` (measure-annotated)          | `splitTreeD_cost`, `split_O_log_n`                            | `FingerSplit.v`   | cost ✅ / correctness ⏳ |
 
 `concat` / `glue` is now **fully proven and assumption-free** — both the
 worst-case O(log n) cost bound *and* demand-correctness (`glueD'_approx`,
 `glueD'_spec`); `Print Assumptions glueD'_spec` reports "Closed under the global
-context". For `index` / `splitTree`, the **worst-case O(log n) cost bounds are
-fully proven** while the functional-correctness lemmas (`_approx` / `_spec`)
-are scoped future work and not stated in the development. The `O(log n)`
+context". **Random access is likewise fully verified**: cost (`indexD_cost`,
+`index_O_log_n`) and demand-correctness (`indexD_approx`, `indexD_spec`, and
+the size-monoid `index_spec`), all axiom-free. The verified `index` is the
+dedicated non-reconstructing descent `lookupTree` (Hinze–Paterson's
+`lookupTree`, as in `Data.Sequence`) — projecting the pivot out of `splitTree`
+is *not* demand-isolated, because locating the pivot inside the borrowed spine
+tuple forces the left half's measure chain. For `splitTree` itself, the
+**worst-case O(log n) cost bound is fully proven** while its
+functional-correctness lemmas await the faithful reconstruction demand and are
+not stated in the development. The `O(log n)`
 asymptotics rest on `size_lower_bound` / `depth_log_size` in `FingerSize.v`.
 `FingerSplit.v` works over an abstract measure **`Monoid`** (`FingerMonoid.v`),
 recovering random access, min-max queues, and ordered sequences à la
@@ -95,7 +103,8 @@ src/FingerPhysicist.v   empty + operation algebra + reverse physicist's method  
 src/FingerSize.v        size / depth metrics; size_lower_bound, depth_log_size
 src/FingerConcat.v      concat / glue; O(log n) cost bound + demand-correctness (glueD'_approx/_spec)
 src/FingerMonoid.v      measure-monoid interface (size / interval / last-value)
-src/FingerSplit.v       measure-annotated trees; O(log n) index & split cost bounds
+src/FingerSplit.v       measure-annotated trees; O(log n) index & split cost bounds;
+                        lookupTree/lookupTreeA + index demand-correctness
 
 docs/REFERENCE.md                 Detailed development reference
 docs/SPLIT_NOTE.md                Notes on the split / measured-tree development
@@ -162,13 +171,15 @@ The audit (`scripts/audit.sh`, run by CI on every push) performs two checks:
 
 1. **Source sweep** — fails on any `Admitted`, `admit`, or `Axiom` outside
    comments in the thesis sources (`src/Finger*.v`). The tree currently has
-   zero hits: the unproven correctness lemmas for `split`/`index` are scoped
+   zero hits: the unproven correctness lemmas for `split` are scoped
    future work and are *not stated* in the development.
 2. **Assumption audit** — compiles `src/Audit.v`, which runs
    `Print Assumptions` on every headline theorem (`amortized_cost`, the
    `_approx`/`_spec`/`_cost` triples of all four deque operations,
-   `glueD'`/`concatD` for concatenation, and the `index`/`split` cost
-   bounds), and fails if anything beyond `Classical_Prop.classic` appears.
+   `glueD'`/`concatD` for concatenation, the random-access
+   demand-correctness results `indexD_approx`/`indexD_spec`/`index_spec`,
+   and the `index`/`split` cost bounds), and fails if anything beyond
+   `Classical_Prop.classic` appears.
 
 `Classical_Prop.classic` (excluded middle) is inherited from the upstream
 library's trace metatheory and only enters through `amortized_cost`; every
@@ -195,7 +206,7 @@ Print Assumptions amortized_cost.
 | `FingerSize.v`       |   5   |     0      | complete                                     |
 | `FingerMonoid.v`     |   2   |     0      | complete                                     |
 | `FingerConcat.v`     |  54   |     0      | complete — cost **and** demand-correctness    |
-| `FingerSplit.v`      |  16   |     0      | cost proven; correctness lemmas not stated (future work) |
+| `FingerSplit.v`      |  35   |     0      | `index` complete (cost **and** demand-correctness); `split` cost-only |
 
 ---
 

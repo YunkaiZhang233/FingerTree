@@ -18,7 +18,8 @@ MEng thesis project formally verifying the amortised time complexity of **Claess
 - ✅ Physicist's argument over `op = Empty | FCons A | FSnoc A | Head | FTail`: all instances (`eval`, `exec`, `demand`, `potential`, `budget`, `pd`, `cd`, `well_defined_potential`, `physicist's_argumentD`, `amortized_cost`) closed — `FingerPhysicist.v`. Uniform `budget = 4`.
 - ✅ Size/depth metrics + `O(log n)` foundations (`size_lower_bound`, `depth_log_size`) — `FingerSize.v`
 - ✅ **`concat`/`glue` correctness** (`FingerConcat.v`): both worst-case O(log n) **cost** bounds AND functional correctness are now fully proven and axiom-free. `glueD'_approx` and **`glueD'_spec`** (clairvoyant dominates demand) are `Qed`; `Print Assumptions glueD'_spec` is "Closed under the global context". `unbundle` is now a faithful inverse (round-trip via `unbundle_flat_approx` / `unbundle_roundtrip`). No admits remain in the file (one dead `Admitted` lives inside a commented-out block).
-- 🟡 **Secondary (cost-only)**: measure-annotated `index`/`split` (`FingerSplit.v`, `FingerMonoid.v`) — **worst-case O(log n) COST bounds fully proven**; their functional-correctness lemmas (`_approx`/`_spec`) are scoped future work and **not stated** in the development (they survive only as a commented-out sketch, so the tree contains zero `Admitted`).
+- ✅ **Random access** (`FingerSplit.v`, `FingerMonoid.v`): worst-case O(log n) cost (`indexD_cost`, `index_O_log_n`) **and demand-correctness** (`indexD_approx`, `indexD_spec`, plus the size-monoid `index_spec`) fully proven, axiom-free. The verified function is the dedicated non-reconstructing descent `lookupTree` (Hinze–Paterson's `lookupTree`); the pivot-projection of `splitTree` is **not** demand-isolated (locating the pivot inside the borrowed tuple forces the left half's measure chain), which is why `index` is defined via `lookupTree`. The clairvoyant side is the pruned `lookupTreeA` — no `deepLA`/`viewLA` needed. `splitTreeD` now threads the genuine pivot demand (`pivotDmd`) through its recursion.
+- 🟡 **Secondary (cost-only)**: `split` — worst-case O(log n) cost bound proven against the scaffold demand function (half-demands still zeroed); its functional-correctness lemmas await the faithful reconstruction demand (improvement-plan Item 4) and are **not stated** in the development (the tree contains zero `Admitted`).
 - ❌ **Out of thesis scope**: `last`/`init` — symmetric to `head`/`tail`, described in thesis only.
 
 ## Key References
@@ -99,7 +100,8 @@ FingerSize.v          Seq_ind_poly, digit_size/size/depth, size_lower_bound,
                       depth_log_size (O(log n) foundations)
 FingerConcat.v        concat / Claessen's glue; worst-case O(log n) cost bound
 FingerMonoid.v        measure-monoid interface (size / interval / last-value)
-FingerSplit.v         measure-annotated trees; O(log n) index & split cost
+FingerSplit.v         measure-annotated trees; O(log n) index & split cost;
+                      lookupTree/lookupTreeA + index demand-correctness
 FingerPhysicist.v     empty + operation algebra op + reverse physicist's
                       method → amortized_cost (the main theorem)
 ```
@@ -129,9 +131,18 @@ measure-annotated secondary operations:
    lemmas + fold helpers) are `Qed` and axiom-free. `unbundle` is a faithful
    inverse. (Optional cleanup: delete the dormant `FingerConcatAlt.v` backup,
    no longer in `_CoqProject`.)
-2. `FingerSplit.v`: discharge the 2 `Admitted` correctness lemmas (`splitD_approx` / `splitD_spec`); the demand *values* (not just the tick structure) need to be filled in.
+2. ✅ **Done**: `FingerSplit.v` random-access demand-correctness — `indexD_approx`,
+   `indexD_spec`, `index_spec` are `Qed` and axiom-free, proved against the
+   pruned clairvoyant `lookupTreeA` (lockstep with the pure `lookupTree`, the
+   strengthened sandwich payload pinning prefix measures); pure `index` is
+   defined via `lookupTree`, and `splitTreeD` threads the genuine pivot demand
+   (`pivotDmd`). Correctness needs cache validity (`mseq_valid`).
+3. `FingerSplit.v`, the faithful split (improvement-plan Item 4): `splitTreeD_f`
+   with real half-demands (`viewLD`/`deepLD` value provenance), its telescoping
+   cost bound via the `lvc`/`rvc` potential, then `_approx`/`_spec` and
+   `split_correct`.
 
-The cost bounds for both (`concatD_cost*`, `indexD_cost`, `splitTreeD_cost`, `*_O_log_n`) are already proven and depend only on `FingerSize.v`.
+The cost bounds (`concatD_cost*`, `indexD_cost`, `splitTreeD_cost`, `*_O_log_n`) are all proven and depend only on `FingerSize.v`.
 
 ## Coding Conventions
 

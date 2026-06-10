@@ -43,7 +43,9 @@ priority queue (interval monoid) and an ordered sequence (last-value monoid).
 - **Random access (`index`)** discards both halves ⇒ in the demand semantics they are
   demanded at `Undefined` ⇒ the `deepL`/`deepR` reconstruction is never forced ⇒ cost
   is the descent path only. Clean `O(log n)`, proved by a `glueD'_cost`-shaped descent
-  induction. **No reconstruction analysis.**
+  induction. **No reconstruction analysis.** As of 2026-06-11 random access is also
+  **demand-correct** (`indexD_approx`/`indexD_spec`/`index_spec`, axiom-free) — see the
+  §7 entry for the `lookupTree` redefinition this required.
 - **Full `split`** forces the halves; its `viewL`/`viewR` cascades must be bounded. The
   tight `O(log n)` needs **one new lemma (M7)**: the reconstruction telescopes because
   `deepL`/`deepR` always refill to a near digit of size ≥ 2, so a cascade only runs
@@ -70,11 +72,15 @@ priority queue (interval monoid) and an ordered sequence (last-value monoid).
   `deepLD_cost`/`deepRD_cost` (from `viewLD_cost`/`viewRD_cost`) replace it. Telescoping → M9.
 - **M8** `splitTreeD_cost` (+ `split_O_log_n`): ✅ M6 descent + flat reconstruction;
   constant `(split_c1+2)·depth t + (split_c2+3)`. **Scaffold result.**
-- **M9** correctness + faithful split — **the remaining work**: the *faithful* `splitTreeD`
+- **M9a** (✅ 2026-06-11) — **index demand-correctness done**: `indexD_approx`,
+  `indexD_spec`, `index_spec` all `Qed`, closed under the global context. Pure `index`
+  redefined via the non-reconstructing `lookupTree`; `splitTreeD` threads the genuine
+  pivot demand (`pivotDmd`); clairvoyant side is the pruned `lookupTreeA`. See §7.
+- **M9b** correctness + faithful split — **the remaining work**: the *faithful* `splitTreeD`
   (thread real half-demands into the recursion; reconstruct per level on the recursive
   halves), its cost via the M7 telescoping (now load-bearing), then `*_approx`/`*_spec`
-  and `split_correct` with the Leroy contract `¬ p mzero ∧ p (measureSeq md t)`. Admitted
-  future work, as `FingerConcat.v` admits `glueD'_approx`/`glueD'_spec`.
+  and `split_correct` with the Leroy contract `¬ p mzero ∧ p (measureSeq md t)`.
+  Improvement-plan Item 4.
 
 (Full pen-and-paper proof, if kept in the repo, lives in the companion design doc.)
 
@@ -157,9 +163,14 @@ item is the M9 correctness block.
   (`Fixpoint`), `deepLD`/`deepRD`/`toTreeD` (`Definition`), `splitTreeD`, `indexD`.
 - **The two `deep*_reconstruction_cost` telescoping lemmas were removed** — the scaffold
   doesn't use them (§7); they return with the faithful function in M9.
-- **Still intentionally incomplete (M9, future):** the commented-out correctness block —
-  `indexD_approx`, `splitTreeD_spec`/`_approx`, `split_correct`. Admitted exactly as
-  `FingerConcat.v` admits `glueD'_approx`/`glueD'_spec`. **Do not close without being asked.**
+- **Closed (`Qed`) as of 2026-06-11 (M9a, improvement-plan Item 3):** `indexD_approx`,
+  `indexD_spec`, `index_spec`, the workhorse `lookupTreeA_spec`, helper specs
+  (`measureDigitA_exact_spec`, `lookupDigitA_exact_spec`, `lookupNodeA_spec`),
+  `pivotNodeDmd_approx`, `indexD_val_thunk`, `measureMTupleA_coh`, and the
+  `MTupleA`/`MSeqA` order-law instances. All axiom-free.
+- **Still intentionally incomplete (M9b, future):** the faithful split —
+  `splitTreeD_f` + telescoping cost + `splitTreeD_f_approx`/`_spec` + `split_correct`.
+  **Do not close without being asked.**
 
 The integrity guardrails (§6) continue to apply to all M9 work: do not weaken a spec
 to make it provable, and do not let the *scaffold* `splitTreeD` quietly become the
@@ -306,3 +317,62 @@ gives up (`27 = split_c2 + 3`, since `depth (MUnit _) = 0`).
 **Fix.** Destruct the demand first: `destruct outD as [[? xD] ?]; simpl; lia` (goal
 collapses to `1 <= 27`). Same root cause as the earlier `MUnitA` stuck goal — an opaque
 tuple demand blocking reduction.
+
+### [DONE] M9a — index demand-correctness (improvement-plan Item 3, 2026-06-11)
+
+**Key finding (design-level).** The pivot-projection of `splitTree` is **not**
+demand-isolated: at each recursive level the pivot's position inside the borrowed
+tuple `xs` is found by `splitDigit md p (vpr <+> ‖ml‖) (tupleToDigit xs)`, where
+`ml` is the recursively *reconstructed* left half. A lazy consumer of the pivot
+alone therefore forces the cached-measure chain of every left half down the
+descent (real forcing for the size monoid, whose `p` inspects its argument) —
+and bounding that cost needs the §C.2 telescoping, i.e. faithful-split (M9b)
+machinery. The fix, anticipated by the improvement plan's "pruned `indexA`"
+hint: define the pure lookup as the dedicated **non-reconstructing descent
+`lookupTree`** (Hinze–Paterson's `lookupTree`, cf. `Data.Sequence`), which
+threads the accumulated prefix measure up through the recursion instead of
+recomputing it from `ml`. `index := snd ∘ lookupTree` (no existing theorem
+mentioned the old pure `index`, so nothing broke); `lookupTree`'s branch
+conditions are syntactically `splitTree`'s, so both locate the same pivot and
+the descent/tick structure is unchanged.
+
+**Demand fix.** `splitTreeD`'s recursion passed `(⊥, ⊥, ⊥)`, dropping the pivot
+demand — exposed by the `MUnit`-middle case, where the pivot tuple sits in the
+(undemanded) unit slot rather than in an `exact`-demanded digit. Now it passes
+`(⊥, pivotDmd …, ⊥)`: `pivotDmd` replays the pure `lookupTree` on the middle
+(demand functions take pure inputs) and wraps `pivotNodeDmd`, which demands the
+scanned tuple components in full (generic `md` forces what it measures), the
+pivot slot at the incoming `xD`, and nothing beyond the pivot. Cost lemmas
+survived with two one-line IH-instantiation changes (the gates `lD`/`rD` are
+still `⊥` on the index path).
+
+**Proof architecture** (all in `FingerSplit.v` §8, all `Qed`, axiom-free):
+- `mseq_valid` — cache validity (`MMore` cache = middle's measure, recursively);
+  the only precondition besides `t <> MNil`. Inside the descent it rules out
+  `MNil` middles (`vm = mzero` + `madd_zero_r` contradicts the branch guards).
+- `indexD_approx` — `MSeq_ind_poly` induction; needs `pivotNodeDmd_approx` and
+  the `Reflexive` instances; no preconditions beyond `xD ⊑ exact pivot`.
+- `lookupTreeA` — pruned clairvoyant lookup (no `deepLA`/`viewLA`); one `tick`
+  per visited node, helpers tick-free, so its cost meets `indexD`'s budget
+  exactly. Recursion via the `forcing mT (fun m => …)` guard pattern.
+- `lookupTreeA_spec` — the lockstep workhorse, strengthened payload:
+  `fst out = pure prefix measure` ∧ `xD ⊑ snd out` ∧
+  `snd out ⊑ Thunk (exact pivot)` ∧ `cost ≤ Tick.cost (indexD …)`.
+  The two-sided sandwich pins forced values to `exact` so the measure-coherence
+  hypothesis (`mdB v = md x` on sandwiched `v`; `measureMTupleA_coh` at spine
+  levels, trivial for the size monoid) makes the clairvoyant branch decisions
+  equal the pure ones. **No monotonicity lemmas needed** — the IH applies to the
+  recursive demand exactly (lockstep), unlike `glueD'_spec`'s `glueA_mon` route.
+- `indexD_spec` / `index_spec` — headline wrappers (the latter at the size
+  monoid, combining with `index_O_log_n` for "demand-correct AND O(log n)").
+
+**Tactic notes.** `Arguments lookupDigit/lookupTree` must NOT be `simpl nomatch`
+(the bodies expose stuck `if`s, so nomatch blocks the constructor-case reduction
+the proofs need); conversely `measureDigitA`/`lookupDigitA` are `simpl never`
+past their own spec lemmas so the workhorse sees folded calls. `destruct (p …)
+eqn:` abstracts hypotheses too (8.19), so no `rewrite … in Hx` after it.
+`Tick.val` does not reduce through folded binds — use a conversion-checked
+`assert (Thunk sD = Thunk (… Tick.val (splitTreeD …) …)) by (rewrite <- HsD, <- HsD'; reflexivity)`.
+`Core`'s `>>` must be re-imported after `Open Scope tick_scope` (the `fconsA'`
+pattern). T-level `less_defined` inversions: use the `TThunk_inv`/
+`TThunkThunk_inv` helper lemmas, not inversion patterns.
