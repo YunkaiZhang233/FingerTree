@@ -276,6 +276,13 @@ Proof.
   intros ? ? ? HH; inv HH; repeat constructor.
 Qed.
 
+(*
+#[global] Instance IsAA_listA' {a' a} {_ : IsAA a' a} : IsAA (list a') (listA a).
+Proof.
+  econstructor; try typeclasses eauto.
+Defined.
+*)
+
 #[global] Instance IsAA_listA {a' a} {_ : IsAA a' a} : IsAA (list a') (listA a).
 Proof.
   econstructor; try typeclasses eauto.
@@ -285,6 +292,16 @@ Defined.
 Proof.
   econstructor. try typeclasses eauto.
 Defined.
+
+Parameter TODO : forall {P : Type}, P.
+
+#[global] Instance IsAS_listA {a' a} {_ : Setoid a'} {_ : IsAA a' a} {_ : IsAS a' a}
+  : IsAS (list a') (listA a).
+Proof.
+  constructor.
+  - apply TODO.
+  - apply TODO.
+Qed.
 
 Canonical AA_listA (a : AA) : AA :=
   {| carrier := list a
