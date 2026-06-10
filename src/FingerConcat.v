@@ -2194,12 +2194,59 @@ Proof.
          helper, TODO) via fsnocA_elemD_step. *)
       admit.
     + (* arm 4: glue (Unit x) as_ (Unit y) = foldr fcons (Unit y) (x :: as_).
-         glueD' splits: s1D = Thunk (UnitA (head elems)), asD = tail elems.
-         STRATEGY: foldr_fcons_clairvoyant_spec on (x :: as_); the head feeds
-         the UnitA, the tail feeds asD. *)
-      admit.
-    + (* arm 4 again, s2 = More u2 m2 v2 (same Unit-front branch as above). *)
-      admit.
+         glueD' returns s1D = Thunk (UnitA (head elems)), asD = tail elems; the
+         clairvoyant glueA' (UnitA head) (tail) folds over (head :: tail) =
+         foldr_fcons_elems (x :: as_) (Unit y) outD, so this reduces to the
+         fold helper on (x :: as_). *)
+      cbn [glueD'] in Htriple, dcost; cbv zeta in Htriple, dcost.
+      destruct (foldr_fcons_elems (x :: as_) (Unit y) outD) as [ | xD asD' ] eqn:He.
+      * cbn [foldr_fcons_elems] in He. discriminate He.
+      * cbn [Tick.val Tick.bind Tick.ret] in Htriple. invert_clear Htriple.
+        unfold glueA. cbn [glue] in Happrox.
+        destruct (Tick.val (foldr_fconsD' (x :: as_) (Unit y) outD)) as [ q2 | ] eqn:Es2D.
+        -- subst dcost.
+           pose proof (@foldr_fconsD'_approx A0 B0 _ _ _ (x :: as_) (Unit y) outD Happrox) as Happ2.
+           rewrite Es2D in Happ2.
+           pose proof (@foldr_fcons_clairvoyant_spec A0 B0 _ _ _ (x :: as_) (Unit y) outD q2 Happrox Es2D) as Hh.
+           rewrite He in Hh.
+           (* q2 = demand on (Unit y), so q2 <> NilA: the UnitA-front fold_right branch
+              applies.  Consume only the glueA' tick (don't let mgo_ peel the concrete
+              cons), then hand the whole fold to the helper. *)
+           destruct q2 as [ | qy | qf qm qr ].
+           { exfalso. invert_clear Happ2.
+             match goal with H : _ `less_defined` _ |- _ => invert_clear H end. }
+           all: cbn [glueA']; apply optimistic_bind; apply optimistic_tick;
+                eapply optimistic_mon; [ exact Hh | ];
+                intros yo mo [Ho Hc]; split;
+                [ exact Ho
+                | unfold Tick.bind, Tick.ret, Tick.tick;
+                  cbn [foldr_fcons_elems Tick.cost Tick.val] in *; lia ].
+        -- exfalso. destruct (foldr_fconsD'_val_thunk (x :: as_) (Unit y) outD) as [ qx Hqx ].
+           rewrite Hqx in Es2D. discriminate Es2D.
+    + (* arm 4 again, s2 = More u2 m2 v2 (same Unit-front branch). *)
+      cbn [glueD'] in Htriple, dcost; cbv zeta in Htriple, dcost.
+      destruct (foldr_fcons_elems (x :: as_) (More u2 m2 v2) outD) as [ | xD asD' ] eqn:He.
+      * cbn [foldr_fcons_elems] in He. discriminate He.
+      * cbn [Tick.val Tick.bind Tick.ret] in Htriple. invert_clear Htriple.
+        unfold glueA. cbn [glue] in Happrox.
+        destruct (Tick.val (foldr_fconsD' (x :: as_) (More u2 m2 v2) outD)) as [ q2 | ] eqn:Es2D.
+        -- subst dcost.
+           pose proof (@foldr_fconsD'_approx A0 B0 _ _ _ (x :: as_) (More u2 m2 v2) outD Happrox) as Happ2.
+           rewrite Es2D in Happ2.
+           pose proof (@foldr_fcons_clairvoyant_spec A0 B0 _ _ _ (x :: as_) (More u2 m2 v2) outD q2 Happrox Es2D) as Hh.
+           rewrite He in Hh.
+           (* q2 = demand on (More u2 m2 v2), so q2 <> NilA. *)
+           destruct q2 as [ | qy | qf qm qr ].
+           { exfalso. invert_clear Happ2.
+             match goal with H : _ `less_defined` _ |- _ => invert_clear H end. }
+           all: cbn [glueA']; apply optimistic_bind; apply optimistic_tick;
+                eapply optimistic_mon; [ exact Hh | ];
+                intros yo mo [Ho Hc]; split;
+                [ exact Ho
+                | unfold Tick.bind, Tick.ret, Tick.tick;
+                  cbn [foldr_fcons_elems Tick.cost Tick.val] in *; lia ].
+        -- exfalso. destruct (foldr_fconsD'_val_thunk (x :: as_) (More u2 m2 v2) outD) as [ qx Hqx ].
+           rewrite Hqx in Es2D. discriminate Es2D.
 
   - (* === s1 = More f m r === *)
     intros A0 f m r IHm B0 LDB0 Refl0 Trans0 EAB0 as_ s2 outD Hlen Happrox s1D asD s2D Htriple dcost.

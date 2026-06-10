@@ -138,6 +138,14 @@ echo 'From Clairvoyance Require Import FingerConcat. Print Assumptions glueD'"'"
 
 ## 5. Reusable tactic patterns (found this session)
 
+> See also `docs/ENGINEERING_NOTES.md` — the project-wide proof-engineering
+> catalogue (implicit/`@`-counting §1, `cbv zeta` §2, `simpl`/`cbn`/`change`
+> §3, `Seq_ind_poly` setup §4/§8, `lia`/`nia` §5/§14, `invert_clear` §6,
+> `Tick.bind` cost/val distribution §7, **`Exact` instance resolution at
+> non-leaf types §11** — key for the recursive step case 5 and the deep arm,
+> **IH-inside-`TR1` §10** — key for the `More/More` lockstep). Read it before
+> the next proof session.
+
 - **`invert_ld_struct`** (defined in `FingerConcat.v`): repeatedly inverts
   `less_defined` on `SeqA`/`DigitA`/`Thunk` constructors. Relax the last rule to
   `Thunk _ \`less_defined\` _` (not `Thunk _ ≤ Thunk _`) so `invert_clear` uses
