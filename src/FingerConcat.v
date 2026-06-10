@@ -1646,6 +1646,17 @@ Proof.
   - cbn [foldl_fsnoc_elems List.length]. f_equal. apply IH.
 Qed.
 
+Lemma firstn_nth_last {X : Type} :
+  forall (l : list X) (n : nat) (d : X),
+    List.length l = S n -> List.firstn n l ++ [List.nth n l d] = l.
+Proof.
+  induction l as [| a l IHl]; intros n d Hlen.
+  - simpl in Hlen. discriminate.
+  - destruct n as [| n].
+    + simpl in Hlen. destruct l; [ reflexivity | simpl in Hlen; discriminate ].
+    + simpl. f_equal. apply IHl. simpl in Hlen. lia.
+Qed.
+
 Lemma glueD'_approx :
   forall (A : Type) (s1 : Seq A)
          (B : Type) `{LDB : LessDefined B, !Reflexive LDB, Exact A B}
@@ -2138,6 +2149,144 @@ Proof.
 Qed.
 
 
+(** *** Snoc-side duals of the cons step / fold helper, for the [_,Nil] and
+    [_,Unit] arms of [glueD'_spec] (which run [glueA']'s [fold_left fsnoc]).
+    [fsnocA_elemD_step] mirrors [fconsA_elemD_step] (front<->rear); the fold
+    helper is generalised on the seed computation [acc] (and its cost budget
+    [Cacc]) because [fold_left] threads the accumulator. *)
+
+Lemma fsnocA_elemD_step (A B : Type) `{LDB : LessDefined B, !Reflexive LDB, Exact A B}
+    (x : A) (s : Seq A) (outD : SeqA B) (e : T B) (q : SeqA B) :
+  outD `is_approx` fsnoc s x ->
+  fsnoc_elemD s outD `less_defined` e ->
+  (match Tick.val (fsnocD' s x outD) with
+   | Thunk d => d | Undefined => bottom_of (exact s) end) `less_defined` q ->
+  fsnocA' q e
+  [[ fun out cost => outD `less_defined` out /\ cost <= Tick.cost (fsnocD' s x outD) ]].
+Proof.
+  revert e q. revert A x s B LDB Reflexive0 H outD.
+  apply (fsnoc_ind (fun A x s s' =>
+    forall B `{LDB : LessDefined B, !Reflexive LDB, Exact A B}
+           (outD : SeqA B) (e : T B) (q : SeqA B),
+      outD `less_defined` exact s' ->
+      fsnoc_elemD s outD `less_defined` e ->
+      (match Tick.val (fsnocD' s x outD) with
+       | Thunk d => d | Undefined => bottom_of (exact s) end) `less_defined` q ->
+      fsnocA' q e
+      [[ fun out cost => outD `less_defined` out /\ cost <= Tick.cost (fsnocD' s x outD) ]])).
+  - (* Case 1: s = Nil *)
+    intros A0 x0 B0 LDB0 HRefl0 EAB0 outD e q Happrox Helem Hq.
+    destruct outD as [ | xD | fD mD rD ]; try (invert_clear Happrox; fail).
+    cbn [fsnoc_elemD] in Helem. simpl in Hq. invert_clear Hq.
+    cbn [fsnocA']. force_all.
+  - (* Case 2: s = Unit y *)
+    intros A0 x0 y0 B0 LDB0 HRefl0 EAB0 outD e q Happrox Helem Hq.
+    destruct outD as [ | xD | fD mD rD ]; try (invert_clear Happrox; fail).
+    invert_clear Happrox as [ | | ? ? ? ? ? ? Hf Hm Hr ].
+    destruct fD as [ [ f1 | f1 f2 | f1 f2 f3 ] | ]; kill_digit Hf;
+    destruct rD as [ [ ra | ra rb | ra rb rc ] | ]; kill_digit Hr;
+      cbn [fsnoc_elemD] in Helem; simpl in Hq; invert_clear Hq;
+      cbn [fsnocA']; force_all.
+  - (* Case 3: s = More f m (One a) *)
+    intros A0 x0 a0 f0 m0 B0 LDB0 HRefl0 EAB0 outD e q Happrox Helem Hq.
+    destruct outD as [ | xD | fD mD rD ]; try (invert_clear Happrox; fail).
+    invert_clear Happrox as [ | | ? ? ? ? ? ? Hf Hm Hr ].
+    destruct rD as [ [ r1 | r1 r2 | r1 r2 r3 ] | ]; kill_digit Hr;
+      cbn [fsnoc_elemD] in Helem; simpl in Hq;
+      invert_clear Hq as [ | | ? ? ? ? ? ? Hqf Hqm Hqr ];
+      invert_clear Hqr as [ | ? ? Hz ]; invert_clear Hz as [ ? ? Hr1q | | ];
+      cbn [fsnocA']; force_all.
+  - (* Case 4: s = More f m (Two a b) *)
+    intros A0 x0 a0 b0 f0 m0 B0 LDB0 HRefl0 EAB0 outD e q Happrox Helem Hq.
+    destruct outD as [ | xD | fD mD rD ]; try (invert_clear Happrox; fail).
+    invert_clear Happrox as [ | | ? ? ? ? ? ? Hf Hm Hr ].
+    destruct rD as [ [ r1 | r1 r2 | r1 r2 r3 ] | ]; kill_digit Hr;
+      cbn [fsnoc_elemD] in Helem; simpl in Hq;
+      invert_clear Hq as [ | | ? ? ? ? ? ? Hqf Hqm Hqr ];
+      invert_clear Hqr as [ | ? ? Hz ]; invert_clear Hz as [ | ? ? ? ? Haq Hbq | ];
+      cbn [fsnocA']; force_all.
+  - (* Case 5: recursive -- admit (mirror of fconsA_elemD_step case 5) *)
+    admit.
+Admitted.
+
+Lemma foldl_fsnoc_clairvoyant_spec (A B : Type) `{LDB : LessDefined B, !Reflexive LDB, Exact A B} :
+  forall (as_ : list A) (s_1 : Seq A) (outD : SeqA B) (acc : M (SeqA B)) (Cacc : nat),
+    outD `is_approx` List.fold_left fsnoc as_ s_1 ->
+    acc [[ fun a c => (match Tick.val (foldl_fsnocD' as_ s_1 outD) with
+                       | Thunk d => d | Undefined => bottom_of (exact s_1) end) `less_defined` a
+                      /\ c <= Cacc ]] ->
+    List.fold_left (fun ac x => let! q := ac in fsnocA' q x) (foldl_fsnoc_elems as_ s_1 outD) acc
+    [[ fun y m => outD `less_defined` y /\ m <= Cacc + Tick.cost (foldl_fsnocD' as_ s_1 outD) ]].
+Proof.
+  induction as_ as [| x as' IH]; intros s_1 outD acc Cacc Happrox Hacc.
+  - cbn [foldl_fsnoc_elems List.fold_left] in *.
+    cbn [foldl_fsnocD' Tick.bind Tick.ret Tick.val] in Hacc |- *.
+    eapply optimistic_mon; [ exact Hacc | ]. intros y m [Ho Hc]. split; [ exact Ho | lia ].
+  - cbn [List.fold_left] in Happrox.
+    set (iD := match Tick.val (foldl_fsnocD' as' (fsnoc s_1 x) outD) with
+               | Thunk d => d | Undefined => bottom_of (exact (fsnoc s_1 x)) end) in *.
+    cbn [foldl_fsnoc_elems]. fold iD.
+    cbn [List.fold_left].
+    assert (Hap_iD : iD `is_approx` fsnoc s_1 x).
+    { unfold iD. pose proof (@foldl_fsnocD'_approx A B _ _ _ as' (fsnoc s_1 x) outD Happrox) as Hin.
+      destruct (Tick.val (foldl_fsnocD' as' (fsnoc s_1 x) outD)) as [ d | ] eqn:Eq.
+      - cbn. invert_clear Hin. assumption.
+      - cbn. apply bottom_is_least. reflexivity. }
+    eapply optimistic_mon.
+    { apply (IH (fsnoc s_1 x) outD
+                (let! q := acc in fsnocA' q (fsnoc_elemD s_1 iD))
+                (Cacc + Tick.cost (fsnocD' s_1 x iD)) Happrox).
+      apply optimistic_bind.
+      eapply optimistic_mon; [ exact Hacc | ].
+      intros qa na [Hqa Hna].
+      eapply optimistic_mon.
+      { eapply fsnocA_elemD_step; [ exact Hap_iD | reflexivity | ].
+        cbn [foldl_fsnocD' Tick.bind Tick.val] in Hqa. exact Hqa. }
+      intros y m [Ho Hc]. split; [ exact Ho | lia ]. }
+    intros y m [Ho Hc]. split; [ exact Ho | ].
+    cbn [foldl_fsnocD'] in *.
+    unfold Tick.bind, Tick.ret; cbn [Tick.cost Tick.val] in *. unfold iD in *. lia.
+Qed.
+
+
+(** *** [foldl_fsnocD'] returns a Thunk for a valid demand -- needed to
+    discharge the Undefined-spine branch of the snoc arms of glueD'_spec.
+    (Unlike the cons fold, fsnocD' is not unconditionally Thunk, hence the
+    is_approx hypothesis.) *)
+Lemma fsnocD'_val_thunk (A B : Type) `{LDB : LessDefined B, !Reflexive LDB, Exact A B}
+    (s : Seq A) (x : A) (outD : SeqA B) :
+  outD `is_approx` fsnoc s x ->
+  exists q, Tick.val (fsnocD' s x outD) = Thunk q.
+Proof.
+  intro Hap. cbn [fsnoc] in Hap.
+  destruct s as [ | y | f m [a | a b | a b c] ];
+    destruct outD as [ | xD | fD mD rD ]; try (invert_clear Hap; fail);
+    try (destruct fD as [ [ ? | ? ? | ? ? ? ] | ]);
+    try (destruct rD as [ [ ? | ? ? | ? ? ? ] | ]);
+    cbn [fsnocD' Tick.bind Tick.ret Tick.val]; eexists; reflexivity.
+Qed.
+
+Lemma foldl_fsnocD'_val_thunk (A B : Type) `{LDB : LessDefined B, !Reflexive LDB, Exact A B}
+    (as_ : list A) (s_1 : Seq A) (outD : SeqA B) :
+  outD `is_approx` List.fold_left fsnoc as_ s_1 ->
+  exists q, Tick.val (foldl_fsnocD' as_ s_1 outD) = Thunk q.
+Proof.
+  revert s_1 outD. induction as_ as [| x as' IH]; intros s_1 outD Hap.
+  - cbn [foldl_fsnocD' Tick.ret Tick.val]. eexists. reflexivity.
+  - cbn [List.fold_left] in Hap.
+    cbn [foldl_fsnocD'].
+    set (iD := match Tick.val (foldl_fsnocD' as' (fsnoc s_1 x) outD) with
+               | Thunk d => d | Undefined => bottom_of (exact (fsnoc s_1 x)) end) in *.
+    assert (Hap_iD : iD `is_approx` fsnoc s_1 x).
+    { unfold iD. pose proof (@foldl_fsnocD'_approx A B _ _ _ as' (fsnoc s_1 x) outD Hap) as Hin.
+      destruct (Tick.val (foldl_fsnocD' as' (fsnoc s_1 x) outD)) as [ d | ] eqn:Eq.
+      - cbn. invert_clear Hin. assumption.
+      - cbn. apply bottom_is_least. reflexivity. }
+    destruct (@fsnocD'_val_thunk A B _ _ _ s_1 x iD Hap_iD) as [ q Hq ].
+    cbn [Tick.bind Tick.val]. fold iD. rewrite Hq. cbn. eexists. reflexivity.
+Qed.
+
+
 (** *** [glueD'_spec]: clairvoyant dominates demand. *)
 Lemma glueD'_spec :
   forall (A : Type) (s1 : Seq A)
@@ -2189,10 +2338,29 @@ Proof.
     intros A0 x B0 LDB0 Refl0 Trans0 EAB0 as_ s2 outD Hlen Happrox s1D asD s2D Htriple dcost.
     destruct s2 as [ | y | u2 m2 v2 ].
     + (* arm 2: glue (Unit x) as_ Nil = foldl fsnoc (Unit x) as_.
-         s1D = foldl_fsnocD' val, asD = foldl_fsnoc_elems as_ (Unit x) outD,
-         s2D = Thunk NilA.  STRATEGY: foldl_fsnoc_clairvoyant_spec (snoc fold
-         helper, TODO) via fsnocA_elemD_step. *)
-      admit.
+         glueA' q1 asD NilA hits the _,NilA branch (q1 = demand on Unit x, <> NilA)
+         = fold_left fsnoc over (foldl_fsnoc_elems as_ (Unit x) outD) from ret q1,
+         which is the foldl helper with seed (ret q1). *)
+      cbn [glueD'] in Htriple, dcost; cbv zeta in Htriple, dcost. subst dcost.
+      cbn [Tick.val Tick.bind Tick.ret] in Htriple. invert_clear Htriple.
+      unfold glueA. cbn [glue] in Happrox.
+      destruct (Tick.val (foldl_fsnocD' as_ (Unit x) outD)) as [ q1 | ] eqn:Es1D.
+      * pose proof (@foldl_fsnocD'_approx A0 B0 _ _ _ as_ (Unit x) outD Happrox) as Happ1.
+        rewrite Es1D in Happ1.
+        pose proof (@foldl_fsnoc_clairvoyant_spec A0 B0 _ _ _ as_ (Unit x) outD (ret q1) 0 Happrox) as Hh.
+        destruct q1 as [ | qx | qf qm qr ];
+          [ exfalso; invert_clear Happ1;
+            match goal with H : _ `less_defined` _ |- _ => invert_clear H end
+          | cbn [glueA']; apply optimistic_bind; apply optimistic_tick;
+            eapply optimistic_mon;
+            [ apply Hh; apply optimistic_ret; rewrite Es1D; cbn; split; [ reflexivity | lia ]
+            | intros yo mo [Ho Hc]; split;
+              [ exact Ho
+              | unfold Tick.bind, Tick.ret, Tick.tick; cbn [Tick.cost Tick.val] in *; lia ] ]
+          | exfalso; invert_clear Happ1;
+            match goal with H : _ `less_defined` _ |- _ => invert_clear H end ].
+      * exfalso. destruct (@foldl_fsnocD'_val_thunk A0 B0 _ _ _ as_ (Unit x) outD Happrox) as [ qx Hqx ].
+        rewrite Hqx in Es1D. discriminate Es1D.
     + (* arm 4: glue (Unit x) as_ (Unit y) = foldr fcons (Unit y) (x :: as_).
          glueD' returns s1D = Thunk (UnitA (head elems)), asD = tail elems; the
          clairvoyant glueA' (UnitA head) (tail) folds over (head :: tail) =
@@ -2252,12 +2420,59 @@ Proof.
     intros A0 f m r IHm B0 LDB0 Refl0 Trans0 EAB0 as_ s2 outD Hlen Happrox s1D asD s2D Htriple dcost.
     destruct s2 as [ | y | u2 m2 v2 ].
     + (* arm 3: glue (More f m r) as_ Nil = foldl fsnoc (More f m r) as_.
-         Like arm 2 with accumulator (More f m r).  foldl_fsnoc_clairvoyant_spec. *)
-      admit.
-    + (* arm 5: glue (More f m r) as_ (Unit y) = foldl fsnoc (More..) (as_ ++ [y]).
-         glueD' splits with firstn |as_| / nth |as_|.  foldl helper on
-         (as_ ++ [y]); first |as_| demands feed asD, the last feeds the UnitA. *)
-      admit.
+         Like arm 2 with accumulator (More f m r); q1 = demand on More, so MoreA. *)
+      cbn [glueD'] in Htriple, dcost; cbv zeta in Htriple, dcost. subst dcost.
+      cbn [Tick.val Tick.bind Tick.ret] in Htriple. invert_clear Htriple.
+      unfold glueA. cbn [glue] in Happrox.
+      destruct (Tick.val (foldl_fsnocD' as_ (More f m r) outD)) as [ q1 | ] eqn:Es1D.
+      * pose proof (@foldl_fsnocD'_approx A0 B0 _ _ _ as_ (More f m r) outD Happrox) as Happ1.
+        rewrite Es1D in Happ1.
+        pose proof (@foldl_fsnoc_clairvoyant_spec A0 B0 _ _ _ as_ (More f m r) outD (ret q1) 0 Happrox) as Hh.
+        destruct q1 as [ | qx | qf qm qr ];
+          [ exfalso; invert_clear Happ1;
+            match goal with H : _ `less_defined` _ |- _ => invert_clear H end
+          | exfalso; invert_clear Happ1;
+            match goal with H : _ `less_defined` _ |- _ => invert_clear H end
+          | cbn [glueA']; apply optimistic_bind; apply optimistic_tick;
+            eapply optimistic_mon;
+            [ apply Hh; apply optimistic_ret; rewrite Es1D; cbn; split; [ reflexivity | lia ]
+            | intros yo mo [Ho Hc]; split;
+              [ exact Ho
+              | unfold Tick.bind, Tick.ret, Tick.tick; cbn [Tick.cost Tick.val] in *; lia ] ] ].
+      * exfalso. destruct (@foldl_fsnocD'_val_thunk A0 B0 _ _ _ as_ (More f m r) outD Happrox) as [ qx Hqx ].
+        rewrite Hqx in Es1D. discriminate Es1D.
+    + (* arm 5: glue (More f m r) as_ (Unit y) = foldl fsnoc (as_ ++ [y]) (More f m r).
+         glueA' q1 asD (UnitA yD) hits the _,UnitA branch = fold_left fsnoc over
+         (asD ++ [yD]) from ret q1.  glueD' set asD = firstn |as_| elemsD and
+         yD = nth |as_| elemsD; firstn_nth_last reassembles them into elemsD =
+         foldl_fsnoc_elems (as_ ++ [y]) (More f m r) outD, the foldl helper's list. *)
+      cbn [glueD'] in Htriple, dcost; cbv zeta in Htriple, dcost. subst dcost.
+      set (elemsD := foldl_fsnoc_elems (as_ ++ [y]) (More f m r) outD) in *.
+      assert (Hreass : List.firstn (List.length as_) elemsD
+                       ++ [List.nth (List.length as_) elemsD Undefined] = elemsD).
+      { apply firstn_nth_last. unfold elemsD.
+        rewrite foldl_fsnoc_elems_length, List.app_length. cbn [List.length]. lia. }
+      cbn [Tick.val Tick.bind Tick.ret] in Htriple. invert_clear Htriple.
+      unfold glueA. cbn [glue] in Happrox.
+      destruct (Tick.val (foldl_fsnocD' (as_ ++ [y]) (More f m r) outD)) as [ q1 | ] eqn:Es1D.
+      * pose proof (@foldl_fsnocD'_approx A0 B0 _ _ _ (as_ ++ [y]) (More f m r) outD Happrox) as Happ1.
+        rewrite Es1D in Happ1.
+        pose proof (@foldl_fsnoc_clairvoyant_spec A0 B0 _ _ _ (as_ ++ [y]) (More f m r) outD (ret q1) 0 Happrox) as Hh.
+        fold elemsD in Hh.
+        destruct q1 as [ | qx | qf qm qr ];
+          [ exfalso; invert_clear Happ1;
+            match goal with H : _ `less_defined` _ |- _ => invert_clear H end
+          | exfalso; invert_clear Happ1;
+            match goal with H : _ `less_defined` _ |- _ => invert_clear H end
+          | cbn [glueA']; apply optimistic_bind; apply optimistic_tick;
+            eapply optimistic_mon;
+            [ rewrite Hreass; apply Hh; apply optimistic_ret; rewrite Es1D; cbn;
+              split; [ reflexivity | lia ]
+            | intros yo mo [Ho Hc]; split;
+              [ exact Ho
+              | unfold Tick.bind, Tick.ret, Tick.tick; cbn [Tick.cost Tick.val] in *; lia ] ] ].
+      * exfalso. destruct (@foldl_fsnocD'_val_thunk A0 B0 _ _ _ (as_ ++ [y]) (More f m r) outD Happrox) as [ qx Hqx ].
+        rewrite Hqx in Es1D. discriminate Es1D.
     + (* arm 6: DEEP More/More — the hard lockstep.  outD = MoreA u1D m'D v2D.
          glueA' recurses on the middle; glueD' recursed via unbundle.  Need:
            IHm (the Seq_ind_poly hypothesis at Tuple level) for the middle,

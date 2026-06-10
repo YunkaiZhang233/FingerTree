@@ -13,10 +13,19 @@
   `fconsA_elemD_step` (its case 5). Generalisation found necessary: the step
   lemma's consed element is upper-unconstrained (`fcons_elemD s outD ≤ e`, no
   `e ≤ exact x`) so the recursive case can feed the spine-derived `PairA`.
-- **Remaining:** step case 5; `glueD'_spec` arms — `Unit/_` (arm 4, reuses the
-  `foldr` helper with a head/tail split), the snoc arms `Unit/Nil`, `More/Nil`,
-  `More/Unit` (need the `foldl` dual helper + `fsnoc` step dual), and the deep
-  `More/More` (arm 6).
+- **Session B (done):** `Unit/_` arms closed (reuse the `foldr` helper). Built
+  the snoc duals — `fsnocA_elemD_step` (cases 1–4; case 5 admitted, mirror of
+  cons) and `foldl_fsnoc_clairvoyant_spec` (generalised on the seed computation,
+  since `fold_left` threads the accumulator) — plus `fsnocD'_val_thunk` /
+  `foldl_fsnocD'_val_thunk` (for the `Undefined`-spine branches; `fsnocD'` isn't
+  unconditionally `Thunk`) and `firstn_nth_last` (reassembly for `More/Unit`).
+  **All fold arms of `glueD'_spec` are now closed**: `Nil`, `Unit/Nil`,
+  `Unit/Unit`, `Unit/More`, `More/Nil`, `More/Unit`. Snoc arms each rule out the
+  wrong `q1` shapes via `foldl_fsnocD'_approx`, consume the `glueA'` tick
+  explicitly, and apply the `foldl` helper with seed `ret q1`.
+- **Remaining (3 admits):** the deep `More/More` arm (arm 6); and the recursive
+  case 5 of **both** `fconsA_elemD_step` and `fsnocA_elemD_step` (closing those
+  makes the whole fold/spec chain axiom-free). Roadmaps in-source + `wip/`.
 
 This document is the orchestration plan for finishing the concatenation
 demand-correctness proof across several sessions. It is paired with the
