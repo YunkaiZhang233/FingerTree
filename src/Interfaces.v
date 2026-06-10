@@ -518,7 +518,7 @@ Qed.
 
 (* The right-to-left implication (which is the one we actually need)
    assumes excluded middle.
-   TODO: Perhaps redefine [(_ <= _)%NAT] (in AmortizedCostSpec) with a double negation.
+   Perhaps redefine [(_ <= _)%NAT] (in AmortizedCostSpec) with a double negation.
    Then it's the other direction that would use excluded middle,
    but we don't care as much about it. *)
 Theorem has_amortized_cost' :
@@ -530,9 +530,6 @@ Qed.
 End AmortizedCostSpec.
 
 (** Clairvoyant Physicist's method *)
-
-(* TODO: These classes are a bit of a mess. Find a good way to package all of
-the required operations and facts together. *)
 
 Definition Potential : Type := valueA -> nat.
 Existing Class Potential.
@@ -703,10 +700,6 @@ Arguments Exec : clear implicits.
 Arguments Demand : clear implicits.
 Arguments IsApproxAlgebra : clear implicits.
 Arguments Potential : clear implicits.
-
-(* TODO: Can we prove a completeness theorem? For a more sophisticated method perhaps? *)
-(* TODO: Can we prove lower bounds? This would be useful to check that [exec]
-   isn't accidentally doing nothing. Also to know whether our upper bound is tight. *)
 
 (*
 Section RealTimeCost.
