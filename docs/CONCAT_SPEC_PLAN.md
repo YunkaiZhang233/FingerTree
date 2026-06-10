@@ -1,6 +1,22 @@
 # Closing `glueD'_spec` — multi-session plan & handoff
 
-**Branch:** `concat-continue`  ·  **File:** `src/FingerConcat.v`  ·  **Status:** Phase 1 done (axiom-free, builds clean); `glueD'_spec` is the single remaining `Admitted`.
+**Branch:** `concat-continue`  ·  **File:** `src/FingerConcat.v`  ·  **Status:** Phase 1 done (axiom-free, builds clean).
+
+## Progress log
+
+- **Session A (done):** `fconsA_elemD_step` **cases 1–4 proven** (case 5, the
+  recursive `More (Three ...)`, has a precise roadmap — see its comment in the
+  source / `wip/step_lemma.v`). The fold helper `foldr_fcons_clairvoyant_spec`
+  is **proven** (modulo step case 5). The **`glueD'_spec` `Nil` arm is closed**
+  via that helper. Whole project builds; `glueD'_approx` etc. stay "Closed
+  under the global context"; the only axiom introduced so far is
+  `fconsA_elemD_step` (its case 5). Generalisation found necessary: the step
+  lemma's consed element is upper-unconstrained (`fcons_elemD s outD ≤ e`, no
+  `e ≤ exact x`) so the recursive case can feed the spine-derived `PairA`.
+- **Remaining:** step case 5; `glueD'_spec` arms — `Unit/_` (arm 4, reuses the
+  `foldr` helper with a head/tail split), the snoc arms `Unit/Nil`, `More/Nil`,
+  `More/Unit` (need the `foldl` dual helper + `fsnoc` step dual), and the deep
+  `More/More` (arm 6).
 
 This document is the orchestration plan for finishing the concatenation
 demand-correctness proof across several sessions. It is paired with the

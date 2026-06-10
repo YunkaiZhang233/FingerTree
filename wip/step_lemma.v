@@ -1,91 +1,94 @@
-(* wip/step_lemma.v — the kernel of glueD'_spec, in progress.
+(* wip/step_lemma.v — fconsA_elemD_step.
 
-   Compile (needs src/*.vo built):
-     ~/.opam/thesis/bin/coqc -Q src Clairvoyance wip/step_lemma.v
+   Cases 1-4 are PROVEN and already integrated into src/FingerConcat.v (just
+   before glueD'_spec), together with the proven foldr_fcons_clairvoyant_spec
+   and the closed glueD'_spec Nil arm.  This scratch keeps the full lemma so
+   that CASE 5 (the recursive More (Three ...) case) can be developed here in
+   isolation, then ported into the file.
 
-   This file is NOT in _CoqProject; `make` ignores it.  When [fconsA_elemD_step]
-   is fully [Qed], paste it into src/FingerConcat.v just before [glueD'_spec],
-   then `make` so the .vo refreshes.
-
-   STATEMENT.  The *extracted* element demand [fcons_elemD s outD] together with
-   any spine [q] that is at least the spine demand [Tick.val (fconsD' x s outD)]
-   reconstructs [outD] within the demand cost.  This is the single-fcons-step
-   analogue of [fconsD'_spec] (FingerCons.v), but with the extracted element
-   demand instead of [exact x], and with [q] allowed to over-approximate the
-   spine demand (the fold feeds it a [q] produced by the inner fold, which is
-   only known to be >= the demand).
-
-   STATUS: case 1 (s = Nil) proven; cases 2–5 admitted.  Model each on the
-   matching case of [fconsD'_spec] in FingerCons.v (lines ~439–573). *)
+   Compile:  ~/.opam/thesis/bin/coqc -Q src Clairvoyance wip/step_lemma.v
+   Case-5 roadmap: see the case-5 comment below and docs/CONCAT_SPEC_PLAN.md. *)
 
 From Coq Require Import List RelationClasses Lia.
 From Clairvoyance Require Import Core Tick Approx FingerCore FingerCons FingerSnoc FingerConcat.
 Import ListNotations.
 Set Implicit Arguments.
+#[local] Existing Instance Reflexive_LessDefined_T.
+Ltac kill_digit H :=
+  try (invert_clear H;
+       match goal with
+       | Hd : (OneA _) `less_defined` _ |- _ => invert_clear Hd
+       | Hd : (TwoA _ _) `less_defined` _ |- _ => invert_clear Hd
+       | Hd : (ThreeA _ _ _) `less_defined` _ |- _ => invert_clear Hd
+       end; fail).
+Ltac force_all := mgo_; repeat (apply optimistic_thunk_go; mgo_).
 
 Lemma fconsA_elemD_step (A B : Type) `{LDB : LessDefined B, !Reflexive LDB, Exact A B}
-    (x : A) (s : Seq A) (outD : SeqA B) (q : SeqA B) :
+    (x : A) (s : Seq A) (outD : SeqA B) (e : T B) (q : SeqA B) :
   outD `is_approx` fcons x s ->
+  fcons_elemD s outD `less_defined` e ->
   (match Tick.val (fconsD' x s outD) with
    | Thunk d => d | Undefined => bottom_of (exact s) end) `less_defined` q ->
-  fconsA' q (fcons_elemD s outD)
+  fconsA' q e
   [[ fun out cost => outD `less_defined` out /\ cost <= Tick.cost (fconsD' x s outD) ]].
 Proof.
-  revert q. revert A x s B LDB Reflexive0 H outD.
+  revert e q. revert A x s B LDB Reflexive0 H outD.
   apply (fcons_ind (fun A x s s' =>
     forall B `{LDB : LessDefined B, !Reflexive LDB, Exact A B}
-           (outD : SeqA B) (q : SeqA B),
+           (outD : SeqA B) (e : T B) (q : SeqA B),
       outD `less_defined` exact s' ->
+      fcons_elemD s outD `less_defined` e ->
       (match Tick.val (fconsD' x s outD) with
        | Thunk d => d | Undefined => bottom_of (exact s) end) `less_defined` q ->
-      fconsA' q (fcons_elemD s outD)
+      fconsA' q e
       [[ fun out cost => outD `less_defined` out /\ cost <= Tick.cost (fconsD' x s outD) ]])).
-
-  (* ---- Case 1: s = Nil, s' = Unit x.  PROVEN. ----
-     fconsD' x Nil outD forces NilA (so q = NilA by Hq), fcons_elemD Nil
-     (UnitA xD) = xD, and fconsA' NilA xD = tick >> ret (UnitA xD) = outD. *)
-  { 
-   intros A0 x0 B0 LDB0 HRefl0 EAB0 outD q Happrox Hq.
+  - (* Case 1: s = Nil *)
+    intros A0 x0 B0 LDB0 HRefl0 EAB0 outD e q Happrox Helem Hq.
     destruct outD as [ | xD | fD mD rD ]; try (invert_clear Happrox; fail).
-    cbn [fcons_elemD].
-    simpl in Hq.
-    invert_clear Hq.
-    cbn [fconsA']. mgo_. 
-   }
-
-  (* ---- Case 2: s = Unit y, s' = More (One x) Nil (One y). ----
-     fconsD' forces UnitA yD (yD read off rD); Hq forces q = UnitA y' with
-     yD <= y'.  fconsA' (UnitA y') xD forces the three let~ into
-     MoreA (OneA xD) NilA (OneA y').  Need outD = MoreA fD mD rD <= that:
-       fD <= Thunk (OneA xD)  (xD = fcons_elemD extracts from fD),
-       mD <= Thunk NilA       (from Happrox),
-       rD <= Thunk (OneA y')  (yD<=y', rD relates to yD).
-     Template: fconsD'_spec case 2 (the optimistic_thunk_go / invert_clear
-     Happrox as [|| ... Ht Ht0 Ht1] block). *)
-   {
-      admit. 
-   }
-
-  (* ---- Case 3: s = More (One a) m r, s' = More (Two x a) m r. ----
-     fconsD' returns Thunk (MoreA (Thunk (OneA aD)) mD rD); fcons_elemD reads xD
-     from the TwoA front of outD.  fconsA' q xD forces front to TwoA xD a'.
-     Template: fconsD'_spec case 3 (keep_mgo_, destruct front digit). *)
-   { 
-      admit. 
-   }
-
-  (* ---- Case 4: s = More (Two a b) m r, s' = More (Three x a b) m r. ----
-     Symmetric to case 3 with ThreeA front.  Template: fconsD'_spec case 4. *)
-   { 
-      admit. 
-   }
-
-  (* ---- Case 5: s = More (Three a b c) m r — RECURSIVE. ----
-     fcons x (More (Three a b c) m r) = More (Two x a) (fcons (Pair b c) m) r.
-     Uses the IH at Tuple level on the middle spine.  Template: fconsD'_spec
-     case 5 (the optimistic_thunk_go cascade + eapply IH + optimistic_mon).
-     The IH here is the [fcons_ind] hypothesis, not glueD'_spec's IHm. *)
-   { 
-      admit. 
-   }
+    cbn [fcons_elemD] in Helem. simpl in Hq. invert_clear Hq.
+    cbn [fconsA']. force_all.
+  - (* Case 2: s = Unit y *)
+    intros A0 x0 y0 B0 LDB0 HRefl0 EAB0 outD e q Happrox Helem Hq.
+    destruct outD as [ | xD | fD mD rD ]; try (invert_clear Happrox; fail).
+    invert_clear Happrox as [ | | ? ? ? ? ? ? Hf Hm Hr ].
+    destruct fD as [ [ f1 | f1 f2 | f1 f2 f3 ] | ]; kill_digit Hf;
+    destruct rD as [ [ ra | ra rb | ra rb rc ] | ]; kill_digit Hr;
+      cbn [fcons_elemD] in Helem; simpl in Hq; invert_clear Hq;
+      cbn [fconsA']; force_all.
+  - (* Case 3: s = More (One a) m r *)
+    intros A0 x0 a0 m0 r0 B0 LDB0 HRefl0 EAB0 outD e q Happrox Helem Hq.
+    destruct outD as [ | xD | fD mD rD ]; try (invert_clear Happrox; fail).
+    invert_clear Happrox as [ | | ? ? ? ? ? ? Hf Hm Hr ].
+    destruct fD as [ [ f1 | f1 f2 | f1 f2 f3 ] | ]; kill_digit Hf;
+      cbn [fcons_elemD] in Helem; simpl in Hq;
+      invert_clear Hq as [ | | ? ? ? ? ? ? Hqf Hqm Hqr ];
+      invert_clear Hqf as [ | ? ? Hz ]; invert_clear Hz as [ ? ? Hf2q | | ];
+      cbn [fconsA']; force_all.
+  - (* Case 4: s = More (Two a b) m r *)
+    intros A0 x0 a0 b0 m0 r0 B0 LDB0 HRefl0 EAB0 outD e q Happrox Helem Hq.
+    destruct outD as [ | xD | fD mD rD ]; try (invert_clear Happrox; fail).
+    invert_clear Happrox as [ | | ? ? ? ? ? ? Hf Hm Hr ].
+    destruct fD as [ [ f1 | f1 f2 | f1 f2 f3 ] | ]; kill_digit Hf;
+      cbn [fcons_elemD] in Helem; simpl in Hq;
+      invert_clear Hq as [ | | ? ? ? ? ? ? Hqf Hqm Hqr ];
+      invert_clear Hqf as [ | ? ? Hz ]; invert_clear Hz as [ | ? ? ? ? Haq Hbq | ];
+      cbn [fconsA']; force_all.
+  - (* Case 5: s = More (Three a b c) m r -- RECURSIVE.  ROADMAP (next session):
+       intros A0 x0 a0 b0 c0 m0 r0 IH B0 ... outD e q Happrox Helem Hq.
+       destruct outD; invert Happrox -> Hf Hm Hr; destruct fD (kill_digit Hf);
+       invert Hq -> Hqf Hqm Hqr; invert Hqf -> qf = Thunk (ThreeA qa qb qc),
+       Haq:f2<=qa, Hbq:exact b0<=qb, Hcq:exact c0<=qc; destruct mD as [dc|];
+       cbn [thunkD] in Hqm; (invert Hm -> Hmc: dc <= exact (fcons (Pair b0 c0) m0));
+       cbn [fconsA']; mgo_; apply optimistic_thunk_go (x3, force f'/pbc/m').
+       At the recursion `(fun m => fconsA' m (Thunk (PairA qb qc))) $! m2`:
+         apply optimistic_thunk_go;   (* force m2 = qm *)
+         eapply optimistic_mon; [ eapply IH | intros out n [Hout Hcost]; mgo_ ].
+       IH side-conditions:
+         (1) dc <= exact (fcons (Pair b0 c0) m0)            -- Hmc
+         (2) fcons_elemD m0 dc <= Thunk (PairA qb qc)       -- trans (fcons_elemD_approx)
+                                                               (exact (Pair b0 c0) <= PairA qb qc via Hbq,Hcq)
+         (3) forced (fconsD' (Pair b0 c0) m0 dc) <= forced m2  -- from Hqm by forced-monotonicity
+       The mD = Undefined sub-case: thunkD on Undefined; the output middle is
+       Undefined so the recursion's optimistic_skip suffices.  *)
+    admit.
 Admitted.

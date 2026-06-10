@@ -2003,6 +2003,140 @@ Qed.
 #[local] Existing Instance Reflexive_LessDefined_prodA.
 
 
+(** *** Single-[fcons] step for the spec direction.
+
+    Kernel of the fold arms of [glueD'_spec].  Given the extracted element
+    demand [fcons_elemD s outD] (or anything [e] above it) and any spine [q]
+    at least the spine demand, the clairvoyant [fconsA'] reconstructs [outD]
+    within the [fconsD'] cost.  The element [e] is upper-unconstrained: a
+    bigger element only makes the output more defined, which still dominates
+    [outD], and lets the recursive [More (Three ...)] case feed the
+    spine-derived [PairA] demand.  Mirrors [fconsD'_spec] (FingerCons.v) but
+    with the extracted/over-approximated element and an over-approximated
+    spine. *)
+
+Ltac kill_digit H :=
+  try (invert_clear H;
+       match goal with
+       | Hd : (OneA _)       `less_defined` _ |- _ => invert_clear Hd
+       | Hd : (TwoA _ _)     `less_defined` _ |- _ => invert_clear Hd
+       | Hd : (ThreeA _ _ _) `less_defined` _ |- _ => invert_clear Hd
+       end; fail).
+Ltac force_all := mgo_; repeat (apply optimistic_thunk_go; mgo_).
+
+Lemma fconsA_elemD_step (A B : Type) `{LDB : LessDefined B, !Reflexive LDB, Exact A B}
+    (x : A) (s : Seq A) (outD : SeqA B) (e : T B) (q : SeqA B) :
+  outD `is_approx` fcons x s ->
+  fcons_elemD s outD `less_defined` e ->
+  (match Tick.val (fconsD' x s outD) with
+   | Thunk d => d | Undefined => bottom_of (exact s) end) `less_defined` q ->
+  fconsA' q e
+  [[ fun out cost => outD `less_defined` out /\ cost <= Tick.cost (fconsD' x s outD) ]].
+Proof.
+  revert e q. revert A x s B LDB Reflexive0 H outD.
+  apply (fcons_ind (fun A x s s' =>
+    forall B `{LDB : LessDefined B, !Reflexive LDB, Exact A B}
+           (outD : SeqA B) (e : T B) (q : SeqA B),
+      outD `less_defined` exact s' ->
+      fcons_elemD s outD `less_defined` e ->
+      (match Tick.val (fconsD' x s outD) with
+       | Thunk d => d | Undefined => bottom_of (exact s) end) `less_defined` q ->
+      fconsA' q e
+      [[ fun out cost => outD `less_defined` out /\ cost <= Tick.cost (fconsD' x s outD) ]])).
+  - (* Case 1: s = Nil *)
+    intros A0 x0 B0 LDB0 HRefl0 EAB0 outD e q Happrox Helem Hq.
+    destruct outD as [ | xD | fD mD rD ]; try (invert_clear Happrox; fail).
+    cbn [fcons_elemD] in Helem. simpl in Hq. invert_clear Hq.
+    cbn [fconsA']. force_all.
+  - (* Case 2: s = Unit y *)
+    intros A0 x0 y0 B0 LDB0 HRefl0 EAB0 outD e q Happrox Helem Hq.
+    destruct outD as [ | xD | fD mD rD ]; try (invert_clear Happrox; fail).
+    invert_clear Happrox as [ | | ? ? ? ? ? ? Hf Hm Hr ].
+    destruct fD as [ [ f1 | f1 f2 | f1 f2 f3 ] | ]; kill_digit Hf;
+    destruct rD as [ [ ra | ra rb | ra rb rc ] | ]; kill_digit Hr;
+      cbn [fcons_elemD] in Helem; simpl in Hq; invert_clear Hq;
+      cbn [fconsA']; force_all.
+  - (* Case 3: s = More (One a) m r *)
+    intros A0 x0 a0 m0 r0 B0 LDB0 HRefl0 EAB0 outD e q Happrox Helem Hq.
+    destruct outD as [ | xD | fD mD rD ]; try (invert_clear Happrox; fail).
+    invert_clear Happrox as [ | | ? ? ? ? ? ? Hf Hm Hr ].
+    destruct fD as [ [ f1 | f1 f2 | f1 f2 f3 ] | ]; kill_digit Hf;
+      cbn [fcons_elemD] in Helem; simpl in Hq;
+      invert_clear Hq as [ | | ? ? ? ? ? ? Hqf Hqm Hqr ];
+      invert_clear Hqf as [ | ? ? Hz ]; invert_clear Hz as [ ? ? Hf2q | | ];
+      cbn [fconsA']; force_all.
+  - (* Case 4: s = More (Two a b) m r *)
+    intros A0 x0 a0 b0 m0 r0 B0 LDB0 HRefl0 EAB0 outD e q Happrox Helem Hq.
+    destruct outD as [ | xD | fD mD rD ]; try (invert_clear Happrox; fail).
+    invert_clear Happrox as [ | | ? ? ? ? ? ? Hf Hm Hr ].
+    destruct fD as [ [ f1 | f1 f2 | f1 f2 f3 ] | ]; kill_digit Hf;
+      cbn [fcons_elemD] in Helem; simpl in Hq;
+      invert_clear Hq as [ | | ? ? ? ? ? ? Hqf Hqm Hqr ];
+      invert_clear Hqf as [ | ? ? Hz ]; invert_clear Hz as [ | ? ? ? ? Haq Hbq | ];
+      cbn [fconsA']; force_all.
+  - (* Case 5: s = More (Three a b c) m r -- RECURSIVE.  ROADMAP (see
+       docs/CONCAT_SPEC_PLAN.md, wip/step_lemma.v): destruct outD; invert
+       Happrox; destruct fD (kill_digit Hf); invert Hq -> Hqf Hqm Hqr; invert
+       Hqf -> qf = Thunk (ThreeA qa qb qc) with f2<=qa, exact b0<=qb,
+       exact c0<=qc; destruct mD as [dc|]; cbn [thunkD] in Hqm; invert Hm ->
+       dc <= exact (fcons (Pair b0 c0) m0); cbn [fconsA']; mgo_; force the
+       three let~ (f', pbc, m').  At the recursion
+         (fun m => fconsA' m (Thunk (PairA qb qc))) $! m2 :
+         apply optimistic_thunk_go (force m2);
+         eapply optimistic_mon; [ eapply IH | intros out n [Hout Hcost]; mgo_ ].
+       IH side-conditions: (1) dc <= exact (fcons (Pair b0 c0) m0);
+       (2) fcons_elemD m0 dc <= Thunk (PairA qb qc)  [trans fcons_elemD_approx,
+           exact (Pair b0 c0) <= PairA qb qc via Hbq Hcq];
+       (3) forced (fconsD' (Pair b0 c0) m0 dc) <= forced m2  [Hqm + forced-mono].
+       mD = Undefined sub-case: output middle Undefined, optimistic_skip. *)
+    admit.
+Admitted.
+
+
+(** *** Clairvoyant fold-right reconstructs [outD] from the recorded element
+    demands ([foldr_fcons_elems]).  This is the fold arm of [glueD'_spec]'s
+    [Nil]/[Unit] cases: the clairvoyant fold over the element demands, started
+    from the threaded spine demand [q2], dominates [outD] within the
+    [foldr_fconsD'] cost.  Replaces the (false) [foldr_fconsA_undef_spec].
+    Runs by induction on [as_] using [fconsA_elemD_step] per element. *)
+Lemma foldr_fcons_clairvoyant_spec (A B : Type) `{LDB : LessDefined B, !Reflexive LDB, Exact A B}
+    (as_ : list A) (s_2 : Seq A) (outD : SeqA B) (q2 : SeqA B) :
+  outD `is_approx` List.fold_right fcons s_2 as_ ->
+  Tick.val (foldr_fconsD' as_ s_2 outD) = Thunk q2 ->
+  List.fold_right (fun (x : T B) (acc : M (SeqA B)) => let! q := acc in fconsA' q x)
+                  (ret q2) (foldr_fcons_elems as_ s_2 outD)
+  [[ fun y m => outD `less_defined` y /\ S m <= S (Tick.cost (foldr_fconsD' as_ s_2 outD) + 0) ]].
+Proof.
+  revert s_2 outD q2.
+  induction as_ as [| x as' IH]; intros s_2 outD q2 Happrox Hval.
+  - cbn [foldr_fcons_elems List.fold_right] in *.
+    cbn [foldr_fconsD' Tick.bind Tick.ret Tick.val] in Hval |- *.
+    apply optimistic_ret. injection Hval as Hq2. subst q2. split; [ reflexivity | lia ].
+  - cbn [List.fold_right] in Happrox.
+    set (s := List.fold_right fcons s_2 as') in *.
+    set (iD := match Tick.val (fconsD' x s outD) with
+               | Thunk q => q | Undefined => bottom_of (exact s) end) in *.
+    cbn [foldr_fcons_elems]. fold s. fold iD.
+    cbn [List.fold_right].
+    apply optimistic_bind.
+    assert (Hap_iD : iD `is_approx` List.fold_right fcons s_2 as').
+    { unfold iD. pose proof (@fconsD'_approx A B _ _ _ x s outD Happrox) as Hin.
+      destruct (Tick.val (fconsD' x s outD)) as [ d | ] eqn:Eq.
+      - cbn. invert_clear Hin. assumption.
+      - cbn. apply bottom_is_least. reflexivity. }
+    eapply optimistic_mon.
+    { apply (IH s_2 iD q2 Hap_iD Hval). }
+    intros q n [Hq_ge Hn].
+    eapply optimistic_mon.
+    { eapply fconsA_elemD_step; [ exact Happrox | reflexivity | exact Hq_ge ]. }
+    intros y m [Hout Hcost].
+    split; [ exact Hout | ].
+    unfold iD in *.
+    cbn [foldr_fconsD'] in Hn |- *.
+    unfold Tick.bind; cbn [Tick.cost Tick.val].
+    unfold s in *. lia.
+Qed.
+
 
 (** *** [glueD'_spec]: clairvoyant dominates demand. *)
 Lemma glueD'_spec :
@@ -2037,17 +2171,19 @@ Proof.
   (* deep More/More (hardest).                                           *)
   (* ------------------------------------------------------------------ *)
 
-  - (* === s1 = Nil === *)
+  - (* === s1 = Nil ===  glue Nil as_ s2 = foldr fcons s2 as_;
+       reconstruct outD from the recorded element demands via the fold helper. *)
     intros A0 B0 LDB0 Refl0 Trans0 EAB0 as_ s2 outD Hlen Happrox s1D asD s2D Htriple dcost.
-    (* Goal after [cbn glueD'; invert_clear Htriple; unfold glueA; destruct
-       (Tick.val (foldr_fconsD' as_ s2 outD)) as [q2|]; simpl; mgo_]:
-         fold_right (fun x acc => let! q := acc in fconsA' q x)
-                    (ret q2) (foldr_fcons_elems as_ s2 outD)
-         [[ fun y m => outD <= y /\ S m <= S (Tick.cost (foldr_fconsD' as_ s2 outD) + 0) ]]
-       STRATEGY: eapply foldr_fcons_clairvoyant_spec (the fold helper, TODO),
-       which itself runs by induction on as_ using fconsA_elemD_step (wip/).
-       The [Undefined] sub-branch is vacuous via foldr_fconsD'_val_thunk. *)
-    admit.
+    cbn [glueD'] in Htriple, dcost.
+    cbn [Tick.val Tick.bind Tick.ret] in Htriple.
+    invert_clear Htriple.
+    unfold glueA.
+    destruct (Tick.val (foldr_fconsD' as_ s2 outD)) as [ q2 | ] eqn:Es2D.
+    + simpl. mgo_. subst dcost. cbn [glue] in Happrox.
+      eapply foldr_fcons_clairvoyant_spec; [ exact Happrox | exact Es2D ].
+    + (* [s2D] = Undefined is vacuous: foldr_fconsD' always returns a Thunk. *)
+      exfalso. destruct (foldr_fconsD'_val_thunk as_ s2 outD) as [ qx Hqx ].
+      rewrite Hqx in Es2D. discriminate Es2D.
 
   - (* === s1 = Unit x === *)
     intros A0 x B0 LDB0 Refl0 Trans0 EAB0 as_ s2 outD Hlen Happrox s1D asD s2D Htriple dcost.
