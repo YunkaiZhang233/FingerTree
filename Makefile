@@ -1,6 +1,12 @@
-.PHONY: all install coq clean clean_coq
+.PHONY: all install coq clean clean_coq audit
 
 all: coq
+
+# Mechanical realisation of the thesis contribution audit: rejects any
+# Admitted/admit/Axiom in src/Finger*.v and runs Print Assumptions on the
+# headline theorems (src/Audit.v), allowing only Classical_Prop.classic.
+audit: coq
+	./scripts/audit.sh
 
 coq: Makefile.coq
 	$(MAKE) -f Makefile.coq
