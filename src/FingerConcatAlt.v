@@ -1840,6 +1840,7 @@ Proof.
     + (* s2 = Nil  : arm 3 *)   admit.
     + (* s2 = Unit y : arm 5 *)   admit.
     + (* s2 = More … : arm 6, the deep recursive case — IHm + glueA'_mon + roundtrip *)   admit.
+Admitted.
 
 (* ================================================================= *)
 (** ** Section 5b: Asymptotic [O(log n)] corollary                     *)

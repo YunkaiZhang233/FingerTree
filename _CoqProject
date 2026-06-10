@@ -31,3 +31,5 @@ src/FingerConcat.v
 src/FingerMonoid.v
 src/FingerSplit.v
 src/FingerPhysicist.v
+
+src/FingerConcatAlt.v

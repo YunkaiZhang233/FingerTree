@@ -14,14 +14,21 @@
       Section 3: Clairvoyant [glueA'] + monotonicity helpers.
       Section 4: Demand function [glueD'].
       Section 5: Cost lemma [glueD'_cost] and corollary [concatD_cost].
-      Section 6: Stubs for future work ([glueD'_approx], [glueD'_spec]).
+      Section 6: Demand-correctness [glueD'_approx] (proved) and the
+                 asymptotic [O(log n)] corollary.
 
     SCOPE: this file proves the **worst-case [O(log n)] cost bound** on
-    [concat] (Claim 1 of the thesis) as a standalone result.  The
-    [unbundle] helper is stubbed for cost-only analysis; a correct
-    implementation is required for [glueD'_approx] / [glueD'_spec],
-    which remain admitted as future work.  See [PROGRESS.md] and
-    [claim1_proof.md] in the repository root for the rationale.  *)
+    [concat] (Claim 1 of the thesis) and the **demand-approximation
+    obligation** [glueD'_approx] (with corollary [concatD_approx]).  The
+    [unbundle] helper is a faithful inverse of the tuple bundling (its
+    agreement is [tupleArities_spec]), so the computed demands on [s1],
+    the middle list, and [s2] all under-approximate their inputs.  All
+    lemmas here are closed under the global context (axiom-free).
+
+    The full unbundled specification [glueD'_spec] (demand approximation
+    combined with computation-cost agreement) remains future work and is
+    developed in [FingerConcatAlt.v], where it and its base-case helper
+    [foldr_fconsA_undef_spec] are still admitted.  *)
 
 From Coq Require Import Arith Psatz Relations RelationClasses List.
 From Clairvoyance Require Import Core Approx ApproxM Tick Prod Option.
@@ -185,6 +192,14 @@ Definition digitToListA {A : Type} (d : DigitA A) : list (T A) :=
   | ThreeA x y z => [x; y; z]
   end.
 
+Lemma digitToListA_mon (A : Type) `{LessDefined A} (d1 d2 : DigitA A) :
+  d1 `less_defined` d2 ->
+  Forall2 less_defined (digitToListA d1) (digitToListA d2).
+Proof.
+  intro Hd; invert_clear Hd; cbn [digitToListA];
+    repeat first [ apply Forall2_cons | apply Forall2_nil ]; assumption.
+Qed.
+
 (** Convert a list of [T A] (size 2..9) to a list of [T (TupleA A)] (size 1..3). *)
 Fixpoint toTuplesA {A : Type} (xs : list (T A)) : list (T (TupleA A)) :=
   match xs with
@@ -323,7 +338,9 @@ Proof.
                  --- reflexivity.
 Qed.
 
-(* Lemma glueA'_mon :
+Local Opaque fconsA fsnocA toTuplesA.
+
+Lemma glueA'_mon :
   forall (A : Type) (q1 : SeqA A),
   forall `{LDA : LessDefined A, !PreOrder LDA}
          (q1' : SeqA A) (as'_ as_ : list (T A)) (q2' q2 : SeqA A),
@@ -332,18 +349,106 @@ Qed.
     q2' `less_defined` q2 ->
     glueA' q1' as'_ q2' `less_defined` glueA' q1 as_ q2.
 Proof.
-  (* TODO: apply (SeqA_ind ...) following ftailA'_mon pattern. *)
-Admitted. *)
+  apply (SeqA_ind
+    (fun A q1 =>
+       forall `{LDA : LessDefined A, !PreOrder LDA}
+              (q1' : SeqA A) (as'_ as_ : list (T A)) (q2' q2 : SeqA A),
+         q1' `less_defined` q1 ->
+         Forall2 less_defined as'_ as_ ->
+         q2' `less_defined` q2 ->
+         glueA' q1' as'_ q2' `less_defined` glueA' q1 as_ q2)).
 
-(* Lemma glueA_mon (A : Type) `{LDA : LessDefined A, PreOrder A LDA}
+  (* ===== q1 = NilA ===== *)
+  - intros A0 LDA0 PA0 q1' as'_ as_ q2' q2 Hq1 Has Hq2.
+    invert_clear Hq1.                          (* q1' = NilA *)
+    cbn -[glueA']. apply tick_mon.
+    apply fold_fconsA_mon; [ exact Has | apply ret_mon; exact Hq2 ].
+
+  (* ===== q1 = UnitA x ===== *)
+  - intros A0 x LDA0 PA0 q1' as'_ as_ q2' q2 Hq1 Has Hq2.
+    invert_clear Hq1 as [ | x1 ? Hx | ].        (* q1' = UnitA x1, Hx : x1 ≤ x *)
+    inversion Hq2 as [ | y1 y2 Hy | fa fb ma mb ra rb Hfa Hma Hra ]; subst.
+    + (* q2 = NilA : fold_left fsnoc over as_, base ret (UnitA x1) *)
+      cbn -[glueA']. apply tick_mon.
+      apply fold_fsnocA_mon; [ exact Has | apply ret_mon; constructor; exact Hx ].
+    + (* q2 = UnitA y : fold_right fcons over x1::as_, base ret q2 *)
+      cbn -[glueA']. apply tick_mon.
+      apply fold_fconsA_mon;
+        [ apply Forall2_cons; [ exact Hx | exact Has ] | apply ret_mon; exact Hq2 ].
+    + (* q2 = MoreA … : same UnitA-front arm *)
+      cbn -[glueA']. apply tick_mon.
+      apply fold_fconsA_mon;
+        [ apply Forall2_cons; [ exact Hx | exact Has ] | apply ret_mon; exact Hq2 ].
+
+  (* ===== q1 = MoreA fD2 mD2 rD2 ===== *)
+  - intros A0 fD2 mD2 rD2 IH LDA0 PA0 q1' as'_ as_ q2' q2 Hq1 Has Hq2.
+    invert_clear Hq1 as [ | | f1 ? m1 ? r1 ? Hf Hm Hr ].
+        (* q1' = MoreA f1 m1 r1;  Hf : f1≤fD2,  Hm : m1≤mD2,  Hr : r1≤rD2 *)
+    inversion Hq2 as [ | y1 y2 Hy | fa fb ma mb ra rb Hfa Hma Hra ]; subst.
+
+    + (* q2 = NilA : fold_left fsnoc over as_, base ret (MoreA f1 m1 r1) *)
+      cbn -[glueA']. apply tick_mon.
+      apply fold_fsnocA_mon;
+        [ exact Has | apply ret_mon; constructor; [ exact Hf | exact Hm | exact Hr ] ].
+
+    + (* q2 = UnitA y : fold_left fsnoc over as_ ++ [y], base ret (MoreA f1 m1 r1) *)
+      cbn -[glueA']. apply tick_mon.
+      apply fold_fsnocA_mon.
+      * apply Forall2_app;
+          [ exact Has | apply Forall2_cons; [ exact Hy | apply Forall2_nil ] ].
+      * apply ret_mon; constructor; [ exact Hf | exact Hm | exact Hr ].
+
+    + (* q2 = MoreA fb mb rb : the deep recursive arm *)
+      cbn -[glueA']. cbv zeta.          (* expose `tuples := toTuplesA (…)` from the let *)
+      apply tick_mon.
+      apply bind_mon; [ solve_mon | intros v1a v1b Hv1 ].   (* force rD1 = r1 vs rD2 *)
+      apply bind_mon; [ solve_mon | intros u2a u2b Hu2 ].   (* force fD2 = fa vs fb *)
+      destruct mD2 as [ md2_inner | ].
+
+      * (* mD2 = Thunk md2_inner *)
+        inversion IH as [x IH_inner Heq | Haux]; subst.
+            (* IH_inner :  forall q1' as'_ as_ q2' q2,
+                 q1' ≤ md2_inner -> Forall2 as'_ as_ -> q2' ≤ q2 ->
+                 glueA' q1' as'_ q2' ≤ glueA' md2_inner as_ q2 *)
+        invert_clear Hm.
+
+        -- (* m1 = Undefined : LHS middle is bottom *)
+           cbn -[glueA']. solve_mon.
+
+        -- (* m1 = Thunk x ,  with  (x ≤ md2_inner) in context *)
+           cbn -[glueA'].
+           apply bind_mon.
+           ++ apply thunk_mon.
+              apply forcing_mon; [ exact Hma | intros m2a m2b Hm2 ].
+              apply IH_inner.
+              ** typeclasses eauto. 
+              ** assumption. (* x ≤ md2_inner *)
+              ** apply toTuplesA_mon.
+                 apply Forall2_app; [ apply digitToListA_mon; exact Hv1 | ].
+                 apply Forall2_app; [ exact Has | apply digitToListA_mon; exact Hu2 ].
+              ** exact Hm2.
+           ++ intros t1 t2 Ht. apply ret_mon.
+              constructor; [ exact Hf | exact Ht | exact Hra ].
+
+      * (* mD2 = Undefined : Hm forces m1 = Undefined; both middles bottom *)
+        invert_clear Hm.
+        cbn -[glueA']. solve_mon.
+Qed.
+
+Lemma glueA_mon (A : Type) `{LDA : LessDefined A, PreOrder A LDA}
     (q1' q1 : T (SeqA A)) (as'_ as_ : list (T A)) (q2' q2 : T (SeqA A)) :
     q1' `less_defined` q1 ->
     Forall2 less_defined as'_ as_ ->
     q2' `less_defined` q2 ->
     glueA q1' as'_ q2' `less_defined` glueA q1 as_ q2.
 Proof.
-  (* TODO: unfold glueA, apply forcing_mon twice, then glueA'_mon. *)
-Admitted. *)
+  intros Hq1 Has Hq2. unfold glueA.
+  apply forcing_mon; [ exact Hq1 | intros s1' s1 Hs1 ].
+  apply forcing_mon; [ exact Hq2 | intros s2' s2 Hs2 ].
+  apply glueA'_mon; assumption.
+Qed.
+
+Local Transparent fconsA fsnocA toTuplesA.
 
 
 (* ================================================================= *)
@@ -359,11 +464,113 @@ Admitted. *)
 
     A correct implementation requires careful case analysis on the input
     list lengths and the bundling pattern of [toTuples]. *)
+(** *** Arity of a single tuple (number of elements it bundles). *)
+Definition tupleArity {A : Type} (t : Tuple A) : nat :=
+  match t with
+  | Pair _ _     => 2
+  | Triple _ _ _ => 3
+  end.
+
+(** *** [tupleArities n]: the widths [toTuples] assigns to a length-[n] list.
+
+    Mirrors [toTuples]'s greedy bundling (Triple-first, with a length-4
+    tail giving two Pairs).  Depends only on [n], so it is recoverable
+    from the three length arguments even when the tuple demands are
+    [Undefined].  Recursion peels 3 (one Triple) per step; the inner
+    match catches the length-4 tail. *)
+Fixpoint tupleArities (n : nat) : list nat :=
+  match n with
+  | S (S (S m)) =>
+      match m with
+      | S O => [2; 2]               (* n = 4 : two Pairs, no Triple *)
+      | _   => 3 :: tupleArities m  (* n = 3 or n >= 5 : peel a Triple *)
+      end
+  | S (S O) => [2]                  (* n = 2 : one Pair *)
+  | _       => []                   (* n = 0 or 1 (1 is degenerate) *)
+  end.
+
+(** *** Expand one tuple-demand to its element-demands.
+
+    When the demand is a concrete [PairA]/[TripleA] its width is
+    self-evident; when it is [Undefined] we emit [k] [Undefined]
+    element-demands, where [k] is the arity known from position. *)
+Definition unbundleTuple {B : Type} (k : nat) (t : T (TupleA B)) : list (T B) :=
+  match t with
+  | Thunk (PairA a b)     => [a; b]
+  | Thunk (TripleA a b c) => [a; b; c]
+  | Undefined             => List.repeat Undefined k
+  end.
+
+(** *** Rebuild a digit-demand from a length-1..3 element-demand list. *)
+Definition listToDigitA {B : Type} (l : list (T B)) : T (DigitA B) :=
+  match l with
+  | [a]       => Thunk (OneA a)
+  | [a; b]    => Thunk (TwoA a b)
+  | [a; b; c] => Thunk (ThreeA a b c)
+  | _         => Undefined   (* length 0 or >3: unreachable for v1/u2 *)
+  end.
+
+(** *** [unbundle]: split a tuple-level middle demand back into demands on
+    [v1] (a digit), [as_] (a flat list), and [u2] (a digit).
+
+    Expand each tuple to its known arity, concatenate, then cut at the
+    [v1]/[as_]/[u2] boundaries.  Total — graceful on malformed input;
+    the approximation lemma (Piece 3) supplies the hypotheses under which
+    the slices land exactly. *)
 Definition unbundle {B : Type}
     (tuplesD : list (T (TupleA B)))
-    (n_v1 n_as n_u2 : nat) :
-    T (DigitA B) * list (T B) * T (DigitA B) :=
-  (Undefined, [], Undefined).
+    (n_v1 n_as n_u2 : nat)
+    : T (DigitA B) * list (T B) * T (DigitA B) :=
+  let n    := n_v1 + n_as + n_u2 in
+  let flat := List.concat
+                (List.map (fun '(k, t) => unbundleTuple k t)
+                          (List.combine (tupleArities n) tuplesD)) in
+  let v1D  := listToDigitA (List.firstn n_v1 flat) in
+  let asD  := List.firstn n_as (List.skipn n_v1 flat) in
+  let u2D  := listToDigitA (List.skipn (n_v1 + n_as) flat) in
+  (v1D, asD, u2D).
+
+Arguments unbundle : simpl never.
+
+(** Boundary correctness: the expanded element list has length [n], so
+    [firstn]/[skipn] at [n_v1] and [n_v1+n_as] hit the digit/list seams. *)
+Lemma tupleArities_sum : forall n,
+  2 <= n <= 9 -> List.fold_right Nat.add 0 (tupleArities n) = n.
+Proof.
+  intros n [Hlo Hhi].
+  do 10 (destruct n; [ first [ reflexivity | lia ] | ]).
+  lia.
+Qed.
+
+(** Agreement with [toTuples]: the recomputed arities are exactly the
+    widths [toTuples] produced — element-type-agnostic, so it holds for
+    the recursive [Tuple A] level too.  The round trip in Piece 3 hinges
+    on this being the *same* arity list [toTuples] used. *)
+Lemma tupleArities_spec : forall (X : Type) (l : list X),
+  List.length l <= 9 ->
+  tupleArities (List.length l) = List.map tupleArity (toTuples l).
+Proof.
+  intros X l Hlen.
+  destruct l as [|?]; [reflexivity |].
+  destruct l as [|?]; [reflexivity |].
+  destruct l as [|?]; [reflexivity |].
+  destruct l as [|?]; [reflexivity |].
+  destruct l as [|?]; [reflexivity |].
+  destruct l as [|?]; [reflexivity |].
+  destruct l as [|?]; [reflexivity |].
+  destruct l as [|?]; [reflexivity |].
+  destruct l as [|?]; [reflexivity |].
+  cbn in Hlen.
+  assert (Hlen': length l <= 0) by lia.
+  assert (Hlen'': length l = 0) by lia.
+  assert (Hl : l = []).
+  {
+    destruct l.
+    + reflexivity.
+    + simpl in Hlen''. discriminate. 
+  }
+  simpl. rewrite Hlen''. simpl. rewrite Hl. simpl. reflexivity.
+Qed.
 
 
 (** *** Helper: demand-side fold-right for [fcons]. *)
@@ -643,6 +850,60 @@ Proof.
     lia.
 Qed.
 
+Lemma foldr_fconsD'_approx (A B : Type) `{LDB: LessDefined B, !Reflexive LDB, Exact A B}
+    (as_ : list A) (s_2 : Seq A) (outD : SeqA B) :
+  outD `is_approx` List.fold_right fcons s_2 as_ ->
+  Tick.val (foldr_fconsD' as_ s_2 outD) `is_approx` s_2.
+Proof.
+  revert outD.
+  induction as_ as [| x as' IH]; intros outD Happrox.
+
+  - (* Base: foldr_fconsD' [] s_2 outD = Tick.ret (Thunk outD).
+       Need Thunk outD ≤ exact s_2.  Happrox : outD ≤ exact (foldr fcons s_2 []) = exact s_2. *)
+    simpl. constructor. exact Happrox.
+
+  - (* Step: foldr_fconsD' (x :: as') s_2 outD =
+       let+ innerD := fconsD' x (foldr fcons s_2 as') outD in
+       foldr_fconsD' as' s_2 innerD_forced.
+       Goal: Tick.val (that) ≤ exact s_2.
+       Strategy: derive innerD_forced ≤ exact (foldr fcons s_2 as') from fconsD'_approx,
+       then IH gives Tick.val (foldr_fconsD' as' s_2 innerD_forced) ≤ exact s_2. *)
+
+    cbn [List.fold_right] in Happrox.
+    (* Happrox : outD ≤ exact (fcons x (foldr fcons s_2 as')) *)
+
+    Local Opaque fconsD'.
+    cbn [foldr_fconsD'].
+
+    set (innerD := Tick.val (fconsD' x (List.fold_right fcons s_2 as') outD)) in *.
+    set (innerD_forced := match innerD with
+                          | Thunk q => q
+                          | Undefined => bottom_of (exact (List.fold_right fcons s_2 as'))
+                          end) in *.
+
+    assert (Hinner_approx : innerD_forced `is_approx` List.fold_right fcons s_2 as').
+    {
+      unfold innerD_forced.
+      destruct innerD as [ q | ] eqn:Eq.
+      - Local Opaque fconsD'_approx.
+        pose proof (@fconsD'_approx A B _ _ _ x (List.fold_right fcons s_2 as') outD Happrox) as Hap.
+        unfold innerD in Eq. simpl in Hap. rewrite Eq in Hap.
+        invert_clear Hap. assumption.
+      - apply bottom_is_least. reflexivity.
+    }
+
+    specialize (IH innerD_forced Hinner_approx).
+    (* IH : Tick.val (foldr_fconsD' as' s_2 innerD_forced) ≤ exact s_2 *)
+
+    simpl Tick.val.
+    change (match Tick.val (fconsD' x (List.fold_right fcons s_2 as') outD) with
+            | Thunk q => q
+            | Undefined => bottom_of (exact (List.fold_right fcons s_2 as'))
+            end) with innerD_forced.
+
+    exact IH.
+Qed.
+
 
 (** *** Cost of the demand-side fold-left. *)
 
@@ -721,6 +982,7 @@ Proof.
     
     exact Hf.
 Qed.
+
 
 
 Lemma fsnoc_depth (A : Type) (s : Seq A) (x : A) :
@@ -1024,49 +1286,452 @@ Qed.
     [ftailD'_spec].  Left as future work; see [claim1_proof.md] and
     [PROGRESS.md] in the repository root for scope rationale. *)
 
+(** Pointwise: a list of [Undefined] demands approximates any exact list. *)
+Lemma Forall2_map_Undefined {A B : Type} `{LessDefined B, Exact A B} (as_ : list A) :
+  Forall2 less_defined
+          (List.map (fun _ : A => @Undefined B) as_)
+          (List.map exact as_).
+Proof.
+  induction as_ as [| a as' IH]; simpl.
+  - constructor.
+  - constructor.
+    + apply LessDefined_Undefined. (* Undefined ≤ exact a *)
+    + exact IH.
+Qed.
 
-(** *** [glueD'_approx]: the demand approximates the inputs. *)
-(* Lemma glueD'_approx : forall (A B : Type)
-    `{LDB : LessDefined B, !Reflexive LDB, Exact A B}
-    (s1 : Seq A) (as_ : list A) (s2 : Seq A) (outD : SeqA B),
+
+Definition tupleToList {A : Type} (t : Tuple A) : list A :=
+  match t with
+  | Pair a b     => [a; b]
+  | Triple a b c => [a; b; c]
+  end.
+
+Lemma toTuples_concat_id {A : Type} (L : list A) :
+  2 <= List.length L <= 9 ->
+  List.concat (List.map tupleToList (toTuples L)) = L.
+Proof.
+  intro Hlen.
+  destruct L as [|?]; simpl in Hlen; try lia; try reflexivity.
+  destruct L as [|?]; simpl in Hlen; try lia; try reflexivity.
+  destruct L as [|?]; simpl in Hlen; try lia; try reflexivity.
+  destruct L as [|?]; simpl in Hlen; try lia; try reflexivity.
+  destruct L as [|?]; simpl in Hlen; try lia; try reflexivity.
+  destruct L as [|?]; simpl in Hlen; try lia; try reflexivity.
+  destruct L as [|?]; simpl in Hlen; try lia; try reflexivity.
+  destruct L as [|?]; simpl in Hlen; try lia; try reflexivity.
+  destruct L as [|?]; simpl in Hlen; try lia; try reflexivity.
+  assert (Hl : length L = 0) by lia.
+  assert (Hempty: L = []).
+  {
+    destruct L.
+    - reflexivity.
+    - simpl in Hl. discriminate.
+  }
+  simpl. repeat apply f_equal. rewrite Hempty. simpl. reflexivity.
+Qed.
+
+Lemma unbundleTuple_approx {A B : Type} `{LessDefined B, Exact A B}
+    (t : T (TupleA B)) (tup : Tuple A) :
+  t `less_defined` exact tup ->
+  Forall2 less_defined (unbundleTuple (tupleArity tup) t)
+                       (List.map exact (tupleToList tup)).
+Proof.
+  intro Ht.
+  destruct tup as [ a b | a b c ]; simpl tupleArity; simpl tupleToList; simpl exact in Ht.
+  - (* Pair a b: exact (Pair a b) = PairA (exact a) (exact b), arity 2 *)
+    destruct t as [ q | ].
+    + invert_clear Ht.   (* q = PairA …, fields ≤ exact a, exact b *)
+      simpl. invert_clear H1. repeat (constructor; [ assumption | ]). constructor.
+    + (* Undefined: unbundleTuple 2 Undefined = repeat Undefined 2 *)
+      simpl. invert_clear Ht. 
+      repeat (constructor; [ apply LessDefined_Undefined | ]). constructor.
+  - (* Triple a b c: arity 3 *)
+    destruct t as [ q | ].
+    + invert_clear Ht.
+      simpl. invert_clear H1. repeat (constructor; [ assumption | ]). constructor.
+    + simpl. invert_clear Ht. repeat (constructor; [ apply LessDefined_Undefined | ]). constructor.
+Qed.
+
+Lemma listToDigitA_approx {A B : Type} `{LessDefined B, Exact A B}
+    (l : list (T B)) (d : Digit A) :
+  Forall2 less_defined l (List.map exact (digitToList d)) ->
+  listToDigitA l `less_defined` exact d.
+Proof.
+  intro Hl.
+  destruct d as [ a | a b | a b c ]; simpl digitToList in Hl; simpl exact.
+  - (* One a: map exact [a] = [exact a]; l must be [d0] with d0 ≤ exact a *)
+    inversion Hl as [| d0 e0 tl0 tle0 Hd0 Htl0 ]; subst.
+    inversion Htl0; subst. simpl listToDigitA.
+    constructor. constructor. exact Hd0.
+  - inversion Hl as [| d0 e0 tl0 tle0 Hd0 Htl0 ]; subst.
+    inversion Htl0 as [| d1 e1 tl1 tle1 Hd1 Htl1 ]; subst.
+    inversion Htl1; subst. simpl listToDigitA.
+    constructor. constructor; [ exact Hd0 | exact Hd1 ].
+  - inversion Hl as [| d0 e0 tl0 tle0 Hd0 Htl0 ]; subst.
+    inversion Htl0 as [| d1 e1 tl1 tle1 Hd1 Htl1 ]; subst.
+    inversion Htl1 as [| d2 e2 tl2 tle2 Hd2 Htl2 ]; subst.
+    inversion Htl2; subst. simpl listToDigitA.
+    constructor. constructor; [ exact Hd0 | exact Hd1 | exact Hd2 ].
+Qed.
+
+Lemma unbundle_flat_approx {A B : Type} `{LDB : LessDefined B, !Reflexive LDB, Exact A B}
+    (L : list A) (middleD : list (T (TupleA B))) :
+  2 <= List.length L <= 9 ->
+  Forall2 less_defined middleD (List.map exact (toTuples L)) ->
+  Forall2 less_defined
+    (List.concat (List.map (fun '(k, t) => unbundleTuple k t)
+                           (List.combine (tupleArities (List.length L)) middleD)))
+    (List.map exact L).
+Proof.
+  intros Hlen HmD.
+  assert (Harity : tupleArities (List.length L) = List.map tupleArity (toTuples L)).
+  { 
+    apply tupleArities_spec. 
+    lia. 
+  }
+  rewrite Harity.
+  (* Fold the RHS L into its tuple-reassembly.  L is a bare variable here, so the
+     match is syntactic and instance-independent.  `at 2` targets the L under
+     `map exact` (occurrence 1 is the L inside `toTuples L` on the left). *)
+  replace L with (List.concat (List.map tupleToList (toTuples L))) at 2
+    by (apply toTuples_concat_id; exact Hlen).
+  rewrite concat_map, map_map.
+  revert middleD HmD.
+  generalize (toTuples L); intro TS.
+  clear Hlen L Harity.
+  induction TS as [| tup ts IHts]; intros middleD HmD.
+  - inversion HmD; subst. simpl. constructor.
+  - inversion HmD as [| d md tl_d tl_md Hd Htl ]; subst.
+    simpl. apply Forall2_app.
+    + apply unbundleTuple_approx. exact Hd.
+    + apply IHts. exact Htl.
+Qed.
+
+Lemma Forall2_firstn {A B : Type} (R : A -> B -> Prop) (n : nat) :
+  forall (l : list A) (l' : list B),
+    Forall2 R l l' -> Forall2 R (List.firstn n l) (List.firstn n l').
+Proof.
+  induction n as [| n IHn]; intros l l' HF.
+  - simpl. constructor.
+  - destruct HF as [| x y l l' Hxy HF ].
+    + simpl. constructor.
+    + simpl. constructor; [ exact Hxy | apply IHn; exact HF ].
+Qed.
+
+Lemma Forall2_skipn {A B : Type} (R : A -> B -> Prop) (n : nat) :
+  forall (l : list A) (l' : list B),
+    Forall2 R l l' -> Forall2 R (List.skipn n l) (List.skipn n l').
+Proof.
+  induction n as [| n IHn]; intros l l' HF.
+  - simpl. exact HF.
+  - destruct HF as [| x y l l' Hxy HF ].
+    + simpl. constructor.
+    + simpl. apply IHn; exact HF.
+Qed.
+
+Lemma glueD'_approx :
+  forall (A : Type) (s1 : Seq A)
+         (B : Type) `{LDB : LessDefined B, !Reflexive LDB, Exact A B}
+         (as_ : list A) (s2 : Seq A) (outD : SeqA B),
+    List.length as_ <= 3 ->
     outD `is_approx` glue s1 as_ s2 ->
     let '(s1D, asD, s2D) := Tick.val (glueD' s1 as_ s2 outD) in
     s1D `less_defined` exact s1 /\
     Forall2 less_defined asD (List.map exact as_) /\
     s2D `less_defined` exact s2.
 Proof.
-  (* Requires correct unbundle.  Not needed for Claim 1. *)
-Admitted. *)
+  apply (Seq_ind_poly
+    (fun (A : Type) (s1 : Seq A) =>
+       forall (B : Type) `{LDB : LessDefined B, !Reflexive LDB, Exact A B}
+              (as_ : list A) (s2 : Seq A) (outD : SeqA B),
+         List.length as_ <= 3 ->
+         outD `is_approx` glue s1 as_ s2 ->
+         let '(s1D, asD, s2D) := Tick.val (glueD' s1 as_ s2 outD) in
+         s1D `less_defined` exact s1 /\
+         Forall2 less_defined asD (List.map exact as_) /\
+         s2D `less_defined` exact s2)).
+
+  (* =============================================================== *)
+  (* === Case 1: s1 = Nil ===                                        *)
+  (* =============================================================== *)
+  - intros A0 B0 LDB0 Refl0 EAB0 as_ s2 outD Hlen_as Happrox.
+    Local Opaque foldr_fconsD' foldl_fsnocD'.
+    cbn [glueD']. cbv zeta.
+    (* val = (Thunk NilA, map (fun _=>Undefined) as_, Tick.val (foldr_fconsD' as_ s2 outD)) *)
+    cbn [glue] in Happrox.
+    pose proof (@foldr_fconsD'_approx A0 B0 _ _ _ as_ s2 outD Happrox) as Hs2.
+    simpl Tick.val.
+    split; [ | split ].
+    + (* Thunk NilA ≤ exact Nil *)
+      apply LessDefined_Thunk. reflexivity.
+    + apply Forall2_map_Undefined.
+    + (* Tick.val (foldr_fconsD' as_ s2 outD) ≤ exact s2 *)
+      exact Hs2.
+
+  (* =============================================================== *)
+  (* === Case 2: s1 = Unit x ===                                     *)
+  (* =============================================================== *)
+  - intros A0 x B0 LDB0 Refl0 EAB0 as_ s2 outD Hlen_as Happrox.
+    Local Opaque foldr_fconsD' foldl_fsnocD'.
+    destruct s2 as [ | y | u2 m2 v2 ].
+
+    + (* s2 = Nil : arm 2, foldl_fsnocD' as_ (Unit x) *)
+      cbn [glueD']. cbv zeta.
+      cbn [glue] in Happrox.
+      pose proof (@foldl_fsnocD'_approx A0 B0 _ _ _ as_ (Unit x) outD Happrox) as Hs1.
+      simpl Tick.val.
+      split; [ | split ].
+      * exact Hs1.
+      * apply Forall2_map_Undefined.
+      * apply LessDefined_Thunk. reflexivity.                              (* Thunk NilA ≤ exact Nil *)
+
+    + (* s2 = Unit y : arm 4, foldr_fconsD' (x :: as_) (Unit y) *)
+      cbn [glueD']. cbv zeta.
+      cbn [glue] in Happrox.
+      pose proof (@foldr_fconsD'_approx A0 B0 _ _ _ (x :: as_) (Unit y) outD Happrox) as Hs2.
+      simpl Tick.val.
+      split; [ | split ].
+      * (* Thunk (UnitA Undefined) ≤ exact (Unit x) = UnitA (exact x) *)
+        constructor. constructor. apply LessDefined_Undefined.
+      * apply Forall2_map_Undefined.
+      * exact Hs2.
+
+    + (* s2 = More u2 m2 v2 : arm 4 again (same Unit-front branch) *)
+      cbn [glueD']. cbv zeta.
+      cbn [glue] in Happrox.
+      pose proof (@foldr_fconsD'_approx A0 B0 _ _ _ (x :: as_) (More u2 m2 v2) outD Happrox) as Hs2.
+      simpl Tick.val.
+      split; [ | split ].
+      * constructor. constructor. apply LessDefined_Undefined.  (* Thunk (UnitA Undefined) ≤ exact (Unit x) *)
+      * apply Forall2_map_Undefined.
+      * exact Hs2.
+
+  (* =============================================================== *)
+  (* === Case 3: s1 = More f m r ===                                 *)
+  (* =============================================================== *)
+  - intros A0 f m r IHm B0 LDB0 Refl0 EAB0 as_ s2 outD Hlen_as Happrox.
+    Local Opaque foldr_fconsD' foldl_fsnocD'.
+    destruct s2 as [ | y | u2 m2 v2 ].
+
+    + (* s2 = Nil : arm 3, foldl_fsnocD' as_ (More f m r) *)
+      cbn [glueD']. cbv zeta.
+      cbn [glue] in Happrox.
+      pose proof (@foldl_fsnocD'_approx A0 B0 _ _ _ as_ (More f m r) outD Happrox) as Hs1.
+      simpl Tick.val.
+      split; [ | split ].
+      * exact Hs1.
+      * apply Forall2_map_Undefined.
+      * apply LessDefined_Thunk. reflexivity.                              (* Thunk NilA ≤ exact Nil *)
+
+    + (* s2 = Unit y : arm 5, foldl_fsnocD' (as_ ++ [y]) (More f m r) *)
+      cbn [glueD']. cbv zeta.
+      cbn [glue] in Happrox.
+      pose proof (@foldl_fsnocD'_approx A0 B0 _ _ _ (as_ ++ [y]) (More f m r) outD Happrox) as Hs1.
+      simpl Tick.val.
+      split; [ | split ].
+      * exact Hs1.
+      * apply Forall2_map_Undefined.
+      * (* Thunk (UnitA Undefined) ≤ exact (Unit y) *)
+        constructor. constructor. apply LessDefined_Undefined.
+
+    + (* s2 = More u2 m2 v2 : ARM 6 — deep recursive case *)
+          destruct outD as [ | | u1D m'D v2D ].
+          * cbn [glue] in Happrox. invert_clear Happrox.   (* outD = NilA: contradiction *)
+          * cbn [glue] in Happrox. invert_clear Happrox.   (* outD = UnitA: contradiction *)
+          * (* outD = MoreA u1D m'D v2D *)
+            cbn [glue] in Happrox.
+            invert_clear Happrox as [ | | ? ? ? ? ? ? Hu1 Hm Hv2 ].
+            (* Hu1 : u1D ≤ exact f      (here u1 := f, the front digit of s1)
+              Hm  : m'D ≤ exact (glue m (toTuples (digitToList r ++ as_ ++ digitToList u2)) m2)
+              Hv2 : v2D ≤ exact v2 *)
+            cbn [glueD']. cbv zeta.
+            set (middle := toTuples (digitToList r ++ as_ ++ digitToList u2)) in *.
+            set (m'D_forced := match m'D with
+                              | Thunk q => q
+                              | Undefined => bottom_of (exact (glue m middle m2))
+                              end) in *.
+            assert (Hm_forced : m'D_forced `is_approx` glue m middle m2).
+            {
+              unfold m'D_forced. destruct m'D as [ q | ] eqn:Eq.
+              - invert_clear Hm. assumption.
+              - apply bottom_is_least. reflexivity.
+            }
+            assert (Hmiddle_len : List.length middle <= 3).
+            { 
+              unfold middle. 
+              apply toTuples_length_bound.
+              rewrite !app_length. 
+              destruct r, u2; simpl; lia. 
+            }
+            (* Fire the IH on the recursive call, capturing all three approx facts. *)
+            specialize (IHm _ _ _ _ middle m2 m'D_forced Hmiddle_len Hm_forced).
+            destruct (Tick.val (glueD' m middle m2 m'D_forced)) as [ [m1D middleD] m2D ] eqn:Eval.
+            destruct IHm as [ Hm1D [ HmiddleD Hm2D ] ].
+            (* Hm1D     : m1D     ≤ exact m
+              HmiddleD : Forall2 less_defined middleD (map exact middle)
+              Hm2D     : m2D     ≤ exact m2 *)
+            simpl Tick.val.
+            (* Goal now (after unbundle exposed):
+              let '(v1D, asD, u2D) := unbundle middleD n_v1 n_as n_u2 in
+              Thunk (MoreA u1D m1D v1D) ≤ exact (More f m r) /\
+              Forall2 less_defined asD (map exact as_) /\
+              Thunk (MoreA u2D m2D v2D) ≤ exact (More u2 m2 v2)
+              where n_v1 = |digitToList r|, n_as = |as_|, n_u2 = |digitToList u2|. *)
+            rewrite Eval.
+            simpl Tick.val.
+            (* If simpl over-reduces, use: cbn [Tick.val Tick.bind Tick.ret]. *)
+
+            (* Name the slicing pieces. *)
+            set (n_v1 := length (digitToList r)) in *.
+            set (n_as := length as_) in *.
+            set (n_u2 := length (digitToList u2)) in *.
+            set (FLAT := List.concat
+                          (map (fun '(k, t) => unbundleTuple k t)
+                                (combine (tupleArities (n_v1 + n_as + n_u2)) middleD))) in *.
+
+            (* The source list and its length bound. *)
+            set (L := digitToList r ++ as_ ++ digitToList u2) in *.
+            assert (HL_len : 2 <= length L <= 9).
+            { 
+              unfold L. rewrite !app_length. destruct r, u2; simpl; lia.
+            }
+
+            (* FLAT approximates `map exact L`, via lemma B.
+              Note: middle = toTuples L, and n_v1 + n_as + n_u2 = length L. *)
+            assert (Hn : n_v1 + n_as + n_u2 = length L).
+            { 
+              unfold n_v1, n_as, n_u2, L. rewrite !app_length.
+              lia. 
+            }
+            assert (HFLAT : Forall2 less_defined FLAT (map exact L)).
+            {
+              unfold FLAT. rewrite Hn.
+              apply unbundle_flat_approx; [ exact HL_len | ].
+              (* HmiddleD : Forall2 ≤ middleD (map exact middle), middle = toTuples L *)
+              unfold L. exact HmiddleD.
+            }
+
+            (* Split FLAT ≤ map exact L along the three segments of L.
+              map exact L = map exact (digitToList r) ++ map exact as_ ++ map exact (digitToList u2). *)
+            unfold L in HFLAT. rewrite !map_app in HFLAT.
+
+            split; [ | split ].
+
+            -- (* LEFT: Thunk (MoreA u1D m1D (listToDigitA (firstn n_v1 FLAT))) ≤ exact (More f m r) *)
+              simpl exact.
+              constructor.                 (* LessDefined_Thunk *)
+              constructor.                 (* LessDefined_MoreA: 3 goals *)
+              ++ exact Hu1.                 (* u1D ≤ exact f *)
+              ++ exact Hm1D.                (* m1D ≤ exact m  (slot is Thunk (Exact_Seq … m)) *)
+              ++ (* listToDigitA (firstn n_v1 FLAT) ≤ exact r *)
+                apply listToDigitA_approx.
+                pose proof (@Forall2_firstn _ _ less_defined n_v1 _ _ HFLAT) as Hsl.
+                unfold n_v1 in *.
+                destruct r as [a1 | a1 a2 | a1 a2 a3]; cbn [digitToList List.length List.map List.firstn List.app] in Hsl |- *; exact Hsl.
+
+            -- (* MIDDLE: firstn n_as (skipn n_v1 FLAT) ≤ map exact as_ *)
+                pose proof (@Forall2_firstn _ _ less_defined n_as _ _
+                            (@Forall2_skipn _ _ less_defined n_v1 _ _ HFLAT)) as Hsl.
+                unfold n_v1 in Hsl.
+                destruct r as [a1 | a1 a2 | a1 a2 a3];
+                  cbn [digitToList List.length List.map List.skipn List.app] in Hsl;
+                  rewrite List.firstn_app in Hsl;
+                  remember (map exact as_) as EA eqn:HEA in Hsl;
+                  assert (Hla : length EA = n_as)
+                    by (rewrite HEA; unfold n_as; rewrite List.map_length; reflexivity);
+                  rewrite Hla in Hsl;
+                  rewrite Nat.sub_diag in Hsl;
+                  cbn [List.firstn] in Hsl;
+                  rewrite List.app_nil_r in Hsl;
+                  assert (HfA : List.firstn n_as EA = EA)
+                    by (rewrite <- Hla; apply List.firstn_all);
+                  rewrite HfA in Hsl;
+                  rewrite HEA in Hsl;
+                  exact Hsl.
 
 
-(** *** [glueD'_exact]: full-demand case. *)
-(* Lemma glueD'_exact (A B : Type) `{Exact A B}
-    (s1 : Seq A) (as_ : list A) (s2 : Seq A) :
-  let '(s1D, asD, s2D) := Tick.val (glueD' s1 as_ s2 (exact (glue s1 as_ s2))) in
-  s1D = exact s1 /\
-  asD = List.map exact as_ /\
-  s2D = exact s2.
+            -- (* RIGHT: Thunk (MoreA (listToDigitA (skipn (n_v1+n_as) FLAT)) m2D v2D)
+                          ≤ exact (More u2 m2 v2) *)
+                simpl exact.
+                constructor.
+                constructor.
+                ++ (* listToDigitA (skipn (n_v1+n_as) FLAT) ≤ exact u2 *)
+                  apply listToDigitA_approx.
+                  (* goal: skipn (n_v1 + n_as) FLAT `Forall2≤` map exact (digitToList u2) *)
+                  pose proof (@Forall2_skipn _ _ less_defined (n_v1 + n_as) _ _ HFLAT) as Hsl.
+                unfold n_v1 in Hsl.
+
+                destruct r as [a1 | a1 a2 | a1 a2 a3].
+                ** (* r = One a1, k = 1 *)
+                  cbn [digitToList List.map] in Hsl.
+                  rewrite !List.skipn_app in Hsl.
+                  cbn [List.length] in Hsl.
+                  rewrite List.map_length in Hsl.
+                  replace (1 + n_as - 1 - n_as) with 0 in Hsl by lia.
+                  replace (1 + n_as - 1) with n_as in Hsl by lia.
+                  rewrite (List.skipn_all2 [exact a1] (n := 1 + n_as)) in Hsl
+                    by (cbn [List.length]; lia).
+                  rewrite (List.skipn_all2 (map exact as_) (n := n_as)) in Hsl
+                    by (rewrite List.map_length; unfold n_as; lia).
+                  cbn [List.app] in Hsl.
+                  replace (n_as - length as_) with 0 in Hsl by (unfold n_as; lia).
+                  cbn [List.skipn] in Hsl.
+                  unfold n_v1.
+                  cbn [digitToList List.length].
+                  exact Hsl.
+                ** (* r = Two a1 a2, k = 2 *)
+                  cbn [digitToList List.map] in Hsl.
+                  rewrite !List.skipn_app in Hsl.
+                  cbn [List.length] in Hsl.
+                  rewrite List.map_length in Hsl.
+                  replace (2 + n_as - 2 - n_as) with 0 in Hsl by lia.
+                  replace (2 + n_as - 2) with n_as in Hsl by lia.
+                  rewrite (List.skipn_all2 [exact a1; exact a2] (n := 2 + n_as)) in Hsl
+                    by (cbn [List.length]; lia).
+                  rewrite (List.skipn_all2 (map exact as_) (n := n_as)) in Hsl
+                    by (rewrite List.map_length; unfold n_as; lia).
+                  cbn [List.app] in Hsl.
+                  replace (n_as - length as_) with 0 in Hsl by (unfold n_as; lia).
+                  cbn [List.skipn] in Hsl.
+                  unfold n_v1.
+                  cbn [digitToList List.length].
+                  exact Hsl.
+                ** (* r = Three a1 a2 a3, k = 3 *)
+                  cbn [digitToList List.map] in Hsl.
+                  rewrite !List.skipn_app in Hsl.
+                  cbn [List.length] in Hsl.
+                  rewrite List.map_length in Hsl.
+                  replace (3 + n_as - 3 - n_as) with 0 in Hsl by lia.
+                  replace (3 + n_as - 3) with n_as in Hsl by lia.
+                  rewrite (List.skipn_all2 [exact a1; exact a2; exact a3] (n := 3 + n_as)) in Hsl
+                    by (cbn [List.length]; lia).
+                  rewrite (List.skipn_all2 (map exact as_) (n := n_as)) in Hsl
+                    by (rewrite List.map_length; unfold n_as; lia).
+                  cbn [List.app] in Hsl.
+                  replace (n_as - length as_) with 0 in Hsl by (unfold n_as; lia).
+                  cbn [List.skipn] in Hsl.
+                  unfold n_v1.
+                  cbn [digitToList List.length].
+                  exact Hsl.
+
+              ++ exact Hm2D.
+              ++ exact Hv2.
+
+Qed.
+
+Corollary concatD_approx (A : Type) `{LDA : LessDefined A, !Reflexive LDA}
+    (q1 q2 : Seq A) (outD : SeqA A) :
+  outD `is_approx` concat q1 q2 ->
+  let '(s1D, asD, s2D) := Tick.val (concatD q1 q2 outD) in
+  s1D `less_defined` exact q1 /\
+  Forall2 less_defined asD (List.map exact (@nil A)) /\
+  s2D `less_defined` exact q2.
 Proof.
-  (* Requires correct unbundle.  Not needed for Claim 1. *)
-Admitted. *)
+  intro Happrox. unfold concatD.
+  apply (@glueD'_approx A q1 A _ _ _ [] q2 outD); [ apply Nat.le_0_l | exact Happrox ].
+Qed.
 
 
-#[local] Existing Instance Reflexive_LessDefined_T.
-#[local] Existing Instance Reflexive_LessDefined_prodA.
-
-(** *** [glueD'_spec]: clairvoyant dominates demand. *)
-(* Lemma glueD'_spec (A B : Type) :
-  forall `{LDB : LessDefined B, !Reflexive LDB, !Transitive LDB, Exact A B}
-    (s1 : Seq A) (as_ : list A) (s2 : Seq A) (outD : SeqA B),
-    outD `is_approx` glue s1 as_ s2 ->
-    forall s1D asD s2D,
-      (s1D, asD, s2D) = Tick.val (glueD' s1 as_ s2 outD) ->
-      let dcost := Tick.cost (glueD' s1 as_ s2 outD) in
-      glueA s1D asD s2D
-      [[ fun out cost => outD `less_defined` out /\ cost <= dcost ]].
-Proof.
-  (* Requires correct unbundle + glueA'_mon.  Not needed for Claim 1. *)
-Admitted. *) 
 
 (* ================================================================= *)
 (** ** Section 5b: Asymptotic [O(log n)] corollary                     *)
