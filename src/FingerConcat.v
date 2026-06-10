@@ -16,16 +16,18 @@
       Section 5: Cost lemma [glueD'_cost] and corollary [concatD_cost].
       Section 6: Demand-correctness [glueD'_approx] (proved, axiom-free)
                  and the asymptotic [O(log n)] corollary.
-      Section 7: Full specification [glueD'_spec] — IN PROGRESS.
+      Section 7: Full specification [glueD'_spec] (proved, axiom-free).
 
-    SCOPE: this is the single canonical concat development (it supersedes
-    [FingerConcatAlt.v], which is being retired).  Fully proved and
-    closed under the global context (axiom-free): the worst-case
-    [O(log n)] cost bound on [concat] (Claim 1), and the demand-
-    approximation obligation [glueD'_approx] / [concatD_approx], resting
-    on the faithful [unbundle] inverse (agreement: [tupleArities_spec]).
+    SCOPE: this is the single canonical concat development.  Everything is
+    proved and closed under the global context (axiom-free): the worst-case
+    [O(log n)] cost bound on [concat] (Claim 1), the demand-approximation
+    obligation [glueD'_approx] / [concatD_approx], and the full unbundled
+    specification [glueD'_spec] (demand reconstruction + cost agreement),
+    all resting on the faithful [unbundle] inverse (agreement:
+    [tupleArities_spec]; round-trip: [unbundle_flat_approx] /
+    [unbundle_roundtrip]).
 
-    The demand function [glueD'] now records the *real* element demands in
+    The demand function [glueD'] records the *real* element demands in
     every arm (the deep arm via [unbundle]; the fold arms via
     [foldr_fcons_elems] / [foldl_fsnoc_elems], whose per-element demands are
     read off [outD] by [fcons_elemD] / [fsnoc_elemD]).  This is what makes
@@ -33,13 +35,10 @@
     demands ([asD = map (fun _ => Undefined) as_]), so no clairvoyant run
     could reconstruct an [outD] that demanded a middle element.
 
-    OPEN OBLIGATION (still [Admitted], the work of branch [concat-continue]):
-    the full unbundled specification [glueD'_spec] (demand reconstruction +
-    cost agreement).  Its kernel is the single-step lemma [fconsA_elemD_step]
+    [glueD'_spec]'s kernel is the single-step lemma [fconsA_elemD_step]
     (extracted element demand + any [q >= spine demand] reconstructs [outD]);
-    the deep [More]/[More] arm needs the [IHm] + [glueA'_mon] + [unbundle]
-    roundtrip lockstep.  Nothing else depends on it, so the axiom-free
-    results above are unaffected.  *)
+    the deep [More]/[More] arm runs the [IHm] + [glueA_mon] +
+    [optimistic_corelax] + [unbundle_roundtrip] lockstep.  *)
 
 From Coq Require Import Arith Psatz Relations RelationClasses List.
 From Clairvoyance Require Import Core Approx ApproxM Tick Prod Option.
