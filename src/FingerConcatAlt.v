@@ -1,3 +1,10 @@
+(** DORMANT BACKUP — NOT IN [_CoqProject], not compiled or checked.
+
+    Superseded by [FingerConcat.v], which is the single canonical concat
+    development (this file's full content was consolidated there).  Kept
+    only as a snapshot; it will silently drift from the canonical file.
+    Delete once [glueD'_spec] is closed in [FingerConcat.v]. *)
+
 (** * FingerConcat — Claessen's [glue] / concatenation operation
 
     This file implements the concatenation operation for the simplified
