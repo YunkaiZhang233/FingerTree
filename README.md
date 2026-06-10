@@ -1,5 +1,7 @@
 # Formally Verified Amortised Complexity of Claessen's Finger Tree
 
+[![Build & Proof-Check](https://github.com/YunkaiZhang233/FingerTree/actions/workflows/ci.yml/badge.svg)](https://github.com/YunkaiZhang233/FingerTree/actions/workflows/ci.yml)
+
 A Rocq (Coq) formalisation, developed for an MEng thesis, of the amortised
 time complexity of **Koen Claessen's 2020 simplified finger tree** under persistent case, using the **bidirectional demand semantics** and **reverse physicist's method** of Xia et al. (ICFP 2024).
 
@@ -71,7 +73,7 @@ worst-case O(log n) cost bound *and* demand-correctness (`glueD'_approx`,
 `glueD'_spec`); `Print Assumptions glueD'_spec` reports "Closed under the global
 context". For `index` / `splitTree`, the **worst-case O(log n) cost bounds are
 fully proven** while the functional-correctness lemmas (`_approx` / `_spec`)
-remain `Admitted` as scoped future work (2 in `FingerSplit.v`). The `O(log n)`
+are scoped future work and not stated in the development. The `O(log n)`
 asymptotics rest on `size_lower_bound` / `depth_log_size` in `FingerSize.v`.
 `FingerSplit.v` works over an abstract measure **`Monoid`** (`FingerMonoid.v`),
 recovering random access, min-max queues, and ordered sequences à la
@@ -127,7 +129,7 @@ to {1,2,3}, and both ends support insertion/deletion).
 
 ### Dependencies
 
-- **Rocq Prover (Coq)** ≥ 8.16 (CI checks 8.16 – 8.19)
+- **Rocq Prover (Coq)** ≥ 8.16 (CI builds 8.19 and runs `make audit` on every push)
 - [`coq-equations`](https://github.com/mattam82/Coq-Equations) ≥ 1.3
 - [`coq-hammer-tactics`](https://github.com/lukaszcz/coqhammer) ≥ 1.3.2 — the
   `sauto` / `Tactics` component is used throughout the finger-tree proofs (no
@@ -150,19 +152,33 @@ make clean      # remove build artifacts
 `_CoqProject` maps `src/` to the `Clairvoyance` logical namespace and lists the
 files in dependency order; the finger-tree files come last.
 
-### Checking assumptions
+### Auditing the proofs
 
-To confirm the core result depends on nothing but classical logic, check a
-major proof term:
+```sh
+make audit      # builds, then runs the full mechanical audit
+```
+
+The audit (`scripts/audit.sh`, run by CI on every push) performs two checks:
+
+1. **Source sweep** — fails on any `Admitted`, `admit`, or `Axiom` outside
+   comments in the thesis sources (`src/Finger*.v`). The tree currently has
+   zero hits: the unproven correctness lemmas for `split`/`index` are scoped
+   future work and are *not stated* in the development.
+2. **Assumption audit** — compiles `src/Audit.v`, which runs
+   `Print Assumptions` on every headline theorem (`amortized_cost`, the
+   `_approx`/`_spec`/`_cost` triples of all four deque operations,
+   `glueD'`/`concatD` for concatenation, and the `index`/`split` cost
+   bounds), and fails if anything beyond `Classical_Prop.classic` appears.
+
+`Classical_Prop.classic` (excluded middle) is inherited from the upstream
+library's trace metatheory and only enters through `amortized_cost`; every
+other audited theorem reports *Closed under the global context*.
+
+To check a single result by hand:
 
 ```coq
 Print Assumptions amortized_cost.
 ```
-
-You should see only `Classical_Prop.classic` (excluded middle, inherited from
-the upstream library). The remaining `Admitted` lemmas are confined to the
-correctness side of `split` (`FingerConcat.v` is now admit-free) and do **not**
-feed into `amortized_cost`.
 
 ---
 
@@ -179,7 +195,7 @@ feed into `amortized_cost`.
 | `FingerSize.v`       |   5   |     0      | complete                                     |
 | `FingerMonoid.v`     |   2   |     0      | complete                                     |
 | `FingerConcat.v`     |  54   |     0      | complete — cost **and** demand-correctness    |
-| `FingerSplit.v`      |  16   |     2      | cost proven; correctness future work         |
+| `FingerSplit.v`      |  16   |     0      | cost proven; correctness lemmas not stated (future work) |
 
 ---
 

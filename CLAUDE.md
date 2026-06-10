@@ -18,7 +18,7 @@ MEng thesis project formally verifying the amortised time complexity of **Claess
 - ✅ Physicist's argument over `op = Empty | FCons A | FSnoc A | Head | FTail`: all instances (`eval`, `exec`, `demand`, `potential`, `budget`, `pd`, `cd`, `well_defined_potential`, `physicist's_argumentD`, `amortized_cost`) closed — `FingerPhysicist.v`. Uniform `budget = 4`.
 - ✅ Size/depth metrics + `O(log n)` foundations (`size_lower_bound`, `depth_log_size`) — `FingerSize.v`
 - ✅ **`concat`/`glue` correctness** (`FingerConcat.v`): both worst-case O(log n) **cost** bounds AND functional correctness are now fully proven and axiom-free. `glueD'_approx` and **`glueD'_spec`** (clairvoyant dominates demand) are `Qed`; `Print Assumptions glueD'_spec` is "Closed under the global context". `unbundle` is now a faithful inverse (round-trip via `unbundle_flat_approx` / `unbundle_roundtrip`). No admits remain in the file (one dead `Admitted` lives inside a commented-out block).
-- 🟡 **Secondary (cost-only)**: measure-annotated `index`/`split` (`FingerSplit.v`, `FingerMonoid.v`) — **worst-case O(log n) COST bounds fully proven**; their functional-correctness lemmas (`_approx`/`_spec`) are `Admitted` as scoped future work (2 in `FingerSplit.v`).
+- 🟡 **Secondary (cost-only)**: measure-annotated `index`/`split` (`FingerSplit.v`, `FingerMonoid.v`) — **worst-case O(log n) COST bounds fully proven**; their functional-correctness lemmas (`_approx`/`_spec`) are scoped future work and **not stated** in the development (they survive only as a commented-out sketch, so the tree contains zero `Admitted`).
 - ❌ **Out of thesis scope**: `last`/`init` — symmetric to `head`/`tail`, described in thesis only.
 
 ## Key References
@@ -116,7 +116,7 @@ function (`D'`) → `_approx` / `_spec` / `_cost` proofs.
 Theorem amortized_cost : AmortizedCostSpec op value valueA.
 ```
 
-proved by `eapply @physicist's_method; typeclasses eauto`. `Print Assumptions amortized_cost` should report only `Classical_Prop.classic` (inherited from the upstream library); the remaining `Admitted` lemmas in `FingerSplit.v` do **not** feed into it (`FingerConcat.v` is now admit-free).
+proved by `eapply @physicist's_method; typeclasses eauto`. `Print Assumptions amortized_cost` should report only `Classical_Prop.classic` (inherited from the upstream library); every other headline theorem is closed under the global context. The whole tree contains zero `Admitted`/`Axiom` (verified mechanically by `make audit`).
 
 ## Remaining Work (post-core)
 
@@ -155,4 +155,6 @@ The cost bounds for both (`concatD_cost*`, `indexD_cost`, `splitTreeD_cost`, `*_
 
 ## Build / Dependencies
 
-The project depends on the vendored `Clairvoyance` library (`src/` minus `Finger*.v`), `coq-equations`, and **`coq-hammer-tactics`** — CoqHammer's `Tactics`/`sauto` are imported (`From Hammer Require Import Tactics`) and used throughout the finger-tree proofs, so the dependency is required (do **not** drop it). `_CoqProject` maps `src/` to the `Clairvoyance` namespace and lists files in dependency order, finger-tree files last. Build with `make` (it generates `Makefile.coq` from `_CoqProject`). CI checks Coq 8.19 only.
+The project depends on the vendored `Clairvoyance` library (`src/` minus `Finger*.v`), `coq-equations`, and **`coq-hammer-tactics`** — CoqHammer's `Tactics`/`sauto` are imported (`From Hammer Require Import Tactics`) and used throughout the finger-tree proofs, so the dependency is required (do **not** drop it). `_CoqProject` maps `src/` to the `Clairvoyance` namespace and lists files in dependency order, finger-tree files last. Build with `make` (it generates `Makefile.coq` from `_CoqProject`). CI checks Coq 8.19 only and runs `make audit` after the build.
+
+`make audit` is the mechanical realisation of the thesis contribution audit: it sweeps `src/Finger*.v` for `Admitted`/`admit`/`Axiom` outside comments (expected: zero) and compiles `src/Audit.v` (deliberately **not** in `_CoqProject`), which runs `Print Assumptions` on every headline theorem; the wrapper `scripts/audit.sh` fails on any assumption other than `Classical_Prop.classic`. Add new headline theorems to `src/Audit.v` as they land.
