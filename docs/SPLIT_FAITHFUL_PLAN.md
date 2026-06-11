@@ -16,15 +16,15 @@
 | 4a | Faithful demand machinery (`splitTreeD_f` + helpers) | ✅ `Qed`/compiled | `daf10ee` |
 | 4b | Telescoping worst-case cost (`splitTreeD_f_cost_pot` → `splitTreeD_f_cost`, `split_f_O_log_n`) | ✅ `Qed`, axiom-free, in audit | `daf10ee`, `7dfa3f7` |
 | 4c | Approximation — helper ladder (15 lemmas) | ✅ `Qed` | `0093a4b` |
-| 4c | Approximation — headline `splitTreeD_f_approx` | ⏳ **next** (statement + proof plan in §5) | — |
-| 4d | `splitTreeD_f_spec` (clairvoyant semantics + lockstep) | ⏳ designed only (§6) | — |
+| 4c | Approximation — headline `splitTreeD_f_approx` | ✅ `Qed`, axiom-free, in audit | `620b2c5` |
+| 4d | `splitTreeD_f_spec` (clairvoyant semantics + lockstep) | ⏳ **next** — designed only (§6) | — |
 
-`FingerSplit.v`: 63 `Qed`, 0 admits.  `make audit`: green, 29 theorems,
+`FingerSplit.v`: 64 `Qed`, 0 admits.  `make audit`: green, 30 theorems,
 all new results *Closed under the global context*.  Nothing pushed to
 any remote.  The plan's **4b fallback checkpoint is banked**: even if
-4c/4d stall, the audit line for split has already improved from "cost
-proved against a simplified demand function" to "cost proved against
-the faithful demand function".
+4d stalls, the audit line for split has already improved from "cost
+proved against a simplified demand function" to "cost AND demand
+approximation proved against the faithful demand function".
 
 File layout of the new material (all in `src/FingerSplit.v`):
 
@@ -150,7 +150,23 @@ This was the plan's "one new proof idea" — it worked exactly as
 predicted (improvement-plan Item 4, stage 4b), with **no** extra side
 condition discovered mid-proof.
 
-## 5. Stage 4c — approximation: ladder done, headline next
+## 5. Stage 4c — approximation: DONE (ladder + headline)
+
+> **Status update (`620b2c5`).**  The headline `splitTreeD_f_approx` is
+> `Qed`, axiom-free, and in the audit.  The proof plan below worked
+> verbatim, with ONE correction discovered while typing it in: the
+> auto-implicit detection keeps `md dflt r sf` (resp. `md dflt pr l`)
+> of `deepLD_f_approx` (resp. `deepRD_f_approx`) **explicit** — consume
+> them as `deepLD_f_approx md dflt r1 sf HvL Hr` /
+> `deepRD_f_approx md dflt pr l1 HvR Hl`, not by proof terms alone.
+> (When in doubt, `About lemma` shows the `Arguments` line; only `m`,
+> `outD` and the result components are implicit.)  Everything else —
+> the never-block extension, the plain-`cbn` reductions, the
+> destruct-eqn/injection skeleton mirrored from the cost theorem, the
+> `eapply pivotNodeDmd_f_approx` and IH-specialization recipes, the
+> `constructor. constructor; [reflexivity | … | reflexivity]`
+> conclusion — went through exactly as planned, first compile after
+> that fix.
 
 **Done (15 `Qed` lemmas, commit `0093a4b`)**, in file order:
 `mtupleSkel_approx`, `digitSkel_approx`, `mseqSkel_approx`,
@@ -362,16 +378,15 @@ Item 4 stages; treat as optional follow-up.
 
 ## 8. Resume checklist (next session)
 
-1. `git -C FingerTree log --oneline -4` → expect `0093a4b`, `7dfa3f7`,
-   `daf10ee`, then Item-3 commits; working tree clean; `make audit`
-   green (29 theorems).
-2. Stage 4c headline: extend the never-block (step 0 of §5), type in
-   `splitTreeD_f_approx` per §5's plan, iterate with the
+1. `git -C FingerTree log --oneline -5` → expect `620b2c5` (4c
+   headline), `8a031c0`, `0093a4b`, `7dfa3f7`, `daf10ee`; working tree
+   clean; `make audit` green (30 theorems).
+2. Stage 4d per §6, one pass at a time, committing at every pass
+   boundary (Pass 2 is the safe landing).  Iterate with the
    truncated-copy trick (`head -N src/FingerSplit.v >
    src/FingerSplitT.v && coqc -Q src Clairvoyance src/FingerSplitT.v`;
    delete `src/FingerSplitT.*` afterwards).
-3. Audit + commit 4c; update SPLIT_NOTE §5/§7 and this file's §0.
-4. Stage 4d per §6, committing at every pass boundary.
-5. Writeup sync (abstract, §3.3, §6.3.3, §7.2, §7.4, §8.2, Appendix A,
+3. New headline theorems go into `src/Audit.v` as they land.
+4. Writeup sync (abstract, §3.3, §6.3.3, §7.2, §7.4, §8.2, Appendix A,
    `docs/REFERENCE.md`) only after the code stages land, per the
    improvement plan's Item-4 writing notes — the user batches this.

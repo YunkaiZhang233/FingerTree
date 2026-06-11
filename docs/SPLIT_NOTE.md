@@ -82,9 +82,9 @@ priority queue (interval monoid) and an ordered sequence (last-value monoid).
   (`viewLD_f`/`viewRD_f`/`deepLD_f`/`deepRD_f`/`pivotNodeDmd_f`, skeleton demands
   `mseqSkel`/`addSkel`); **4b** its worst-case cost via the M7 telescoping, now
   load-bearing (`splitTreeD_f_cost_pot` with the chain-potential IH;
-  `splitTreeD_f_cost`, `split_f_O_log_n` — in the audit); **4c helper ladder** (15
-  approximation lemmas). Remaining: 4c headline `splitTreeD_f_approx` (proof plan
-  written), 4d `splitTreeD_f_spec` (designed); `split_correct` optional.
+  `splitTreeD_f_cost`, `split_f_O_log_n` — in the audit); **4c** the approximation
+  helper ladder (15 lemmas) + headline `splitTreeD_f_approx` (in the audit).
+  Remaining: 4d `splitTreeD_f_spec` (designed); `split_correct` optional.
 
 (Full pen-and-paper proof, if kept in the repo, lives in the companion design doc.)
 
@@ -172,17 +172,17 @@ item is the M9 correctness block.
   (`measureDigitA_exact_spec`, `lookupDigitA_exact_spec`, `lookupNodeA_spec`),
   `pivotNodeDmd_approx`, `indexD_val_thunk`, `measureMTupleA_coh`, and the
   `MTupleA`/`MSeqA` order-law instances. All axiom-free.
-- **Closed (`Qed`) as of 2026-06-11 (M9b stages 4a-4c-partial, improvement-plan Item 4):**
+- **Closed (`Qed`) as of 2026-06-11 (M9b stages 4a–4c, improvement-plan Item 4):**
   `splitTreeD_f` and its demand machinery; `viewLD_f_cost`/`viewRD_f_cost`,
   `deepLD_f_cost_lvc`/`deepRD_f_cost_rvc`, `viewL_None`/`viewR_None`,
   `lvc_pos`/`rvc_pos`/`lvc_toTree`/`rvc_toTree`; the telescoping
   `splitTreeD_f_cost_pot` + headline `splitTreeD_f_cost`/`split_f_O_log_n` (audited);
-  and the 4c approximation helper ladder (15 lemmas, from `mtupleSkel_approx` to
-  `pivotNodeDmd_f_approx`). All axiom-free.
-- **Still intentionally incomplete (M9b remainder):** the headline
-  `splitTreeD_f_approx` (proof plan in `SPLIT_FAITHFUL_PLAN.md` §5), `splitTreeD_f_spec`
-  (4d, design in §6 there), `split_correct` (optional). **Do not close without being
-  asked.**
+  the 4c approximation helper ladder (15 lemmas, from `mtupleSkel_approx` to
+  `pivotNodeDmd_f_approx`); and the 4c headline `splitTreeD_f_approx` (audited).
+  All axiom-free.
+- **Still intentionally incomplete (M9b remainder):** `splitTreeD_f_spec` (4d, design
+  in `SPLIT_FAITHFUL_PLAN.md` §6), `split_correct` (optional). **Do not close without
+  being asked.**
 
 The integrity guardrails (§6) continue to apply to all M9 work: do not weaken a spec
 to make it provable, and do not let the *scaffold* `splitTreeD` quietly become the
@@ -392,10 +392,11 @@ pattern). T-level `less_defined` inversions: use the `TThunk_inv`/
 ### [IN PROGRESS] M9b — faithful split (improvement-plan Item 4, 2026-06-11)
 
 Stages 4a (faithful demand function), 4b (telescoping cost, banked
-fallback checkpoint) and the 4c helper ladder are `Qed` and committed
-(`daf10ee`, `7dfa3f7`, `0093a4b`); `make audit` green at 29 theorems.
-**All design detail, statements, proof plans for the remaining 4c
-headline + 4d, and the session's proof-engineering lessons (the
+fallback checkpoint) and 4c (approximation: 15-lemma helper ladder +
+headline `splitTreeD_f_approx`) are `Qed` and committed (`daf10ee`,
+`7dfa3f7`, `0093a4b`, `620b2c5`); `make audit` green at 30 theorems.
+Remaining: 4d `splitTreeD_f_spec`.  **All design detail, the 4d
+multi-pass plan, and the session's proof-engineering lessons (the
 `[[`/`]]` lexer keywords, auto-implicit binders, `simpl never` vs `cbn`
 whitelists and the load-bearing file ordering, the `cbn`-unfolds-
 Definitions-on-constructors trap, folded-`exact` inversion recipes, the
