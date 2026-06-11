@@ -2978,5 +2978,464 @@ Arguments viewLA : simpl nomatch.
 Arguments viewRA : simpl nomatch.
 
 (* ================================================================= *)
+(** ** Section 12: Helper specifications for the faithful split (4d-2) *)
+(* ================================================================= *)
+
+(** Sandwich-style specs (the [lookupNodeA_spec] pattern): every spec
+    takes its input pinned between the demand-side value and [exact] of
+    the pure input, so the lockstep needs NO separate monotonicity
+    lemmas — the strengthened-payload route of Item 3.
+
+    The proofs below must reduce the Section 2/9 helpers that the
+    Section 10 theorems kept folded; the latest [Arguments] directive
+    wins, so we flip them back to [simpl nomatch] here (everything
+    above this point is already [Qed]). *)
+
+Arguments viewL : simpl nomatch.
+Arguments viewR : simpl nomatch.
+Arguments deepL : simpl nomatch.
+Arguments deepR : simpl nomatch.
+Arguments toTree : simpl nomatch.
+Arguments splitDigit : simpl nomatch.
+Arguments measureDigit : simpl nomatch.
+Arguments measureSeq : simpl nomatch.
+Arguments viewLD_f : simpl nomatch.
+Arguments viewRD_f : simpl nomatch.
+Arguments deepLD_f : simpl nomatch.
+Arguments deepRD_f : simpl nomatch.
+Arguments mtupleSkel : simpl nomatch.
+Arguments digitSkel : simpl nomatch.
+Arguments mseqSkel : simpl nomatch.
+Arguments addTupleSkel : simpl nomatch.
+Arguments addDigitSkel : simpl nomatch.
+Arguments addSkel : simpl nomatch.
+Arguments tupleDmdOfDigitDmd : simpl nomatch.
+Arguments toTreeDmd : simpl nomatch.
+Arguments borrowDmdL : simpl nomatch.
+Arguments borrowDmdR : simpl nomatch.
+Arguments pivotNodeDmd_f : simpl nomatch.
+Arguments measureDigitA : simpl nomatch.
+
+(** *** 12a. Order facts for the skeleton merges and digit borrows *)
+
+(** The merges dominate the merged demand. *)
+Lemma addTupleSkel_ge {M A B} `{LessDefined B}
+    `{!Reflexive (less_defined (a := B))}
+    (x : MTuple M A) (xD : T (MTupleA M B)) :
+  xD `less_defined` addTupleSkel x xD.
+Proof.
+  destruct xD; cbn; [ reflexivity | constructor ].
+Qed.
+
+Lemma addDigitSkel_ge {M A B} `{LessDefined B}
+    `{!Reflexive (less_defined (a := B))}
+    (d : Digit (MTuple M A)) (dD : T (DigitA (MTupleA M B))) :
+  dD `less_defined` addDigitSkel d dD.
+Proof.
+  destruct dD as [dd|]; cbn; [ | constructor ].
+  constructor.
+  destruct d as [x|x y|x y z]; destruct dd as [a|a b|a b c];
+    try reflexivity; constructor; apply addTupleSkel_ge.
+Qed.
+
+Lemma addSkel_ge {M A B} `{LessDefined B}
+    `{!Reflexive (less_defined (a := B))}
+    (m : MSeq M (MTuple M A)) (mD : T (MSeqA M (MTupleA M B))) :
+  mD `less_defined` addSkel m mD.
+Proof.
+  destruct mD as [s|]; cbn; [ | constructor ].
+  constructor.
+  destruct m as [|x|vm pr mm sf]; destruct s as [|a|vm' prD mD' sfD];
+    try reflexivity; constructor;
+    first [ apply addTupleSkel_ge | apply addDigitSkel_ge | reflexivity ].
+Qed.
+
+(** Skeletons are self-related (contents are bottom — no element
+    reflexivity needed). *)
+Lemma mtupleSkel_le_refl {M A B} `{LessDefined B} (x : MTuple M A) :
+  mtupleSkel (B := B) x `less_defined` mtupleSkel x.
+Proof. destruct x; repeat constructor. Qed.
+
+Lemma digitSkel_le_refl {M A B} `{LessDefined B} (d : Digit (MTuple M A)) :
+  digitSkel (B := B) d `less_defined` digitSkel d.
+Proof.
+  destruct d; repeat constructor; apply mtupleSkel_le_refl.
+Qed.
+
+Lemma mseqSkel_le_refl {M A B} `{LessDefined B} (m : MSeq M (MTuple M A)) :
+  mseqSkel (B := B) m `less_defined` mseqSkel m.
+Proof.
+  destruct m; repeat constructor;
+    first [ apply mtupleSkel_le_refl | apply digitSkel_le_refl ].
+Qed.
+
+(** The merges dominate the skeleton (given shape agreement). *)
+Lemma addTupleSkel_skel {M A B} `{LessDefined B} `{Exact A B}
+    (x : MTuple M A) (xD : T (MTupleA M B)) :
+  xD `less_defined` exact x ->
+  Thunk (mtupleSkel x) `less_defined` addTupleSkel x xD.
+Proof.
+  intro Hx. destruct xD as [v|]; cbn.
+  - apply TThunkThunk_inv in Hx.
+    destruct x as [c a b|c a b d]; invert_clear Hx; cbn;
+      repeat constructor.
+  - destruct x; repeat constructor.
+Qed.
+
+Lemma addDigitSkel_skel {M A B} `{LessDefined B} `{Exact A B}
+    (d : Digit (MTuple M A)) (dD : T (DigitA (MTupleA M B))) :
+  dD `less_defined` exact d ->
+  Thunk (digitSkel d) `less_defined` addDigitSkel d dD.
+Proof.
+  intro Hd. destruct dD as [dd|]; cbn.
+  - apply TThunkThunk_inv in Hd.
+    destruct d as [x|x y|x y z]; invert_clear Hd; cbn;
+      repeat constructor;
+      apply addTupleSkel_skel; assumption.
+  - constructor; apply digitSkel_le_refl.
+Qed.
+
+Lemma addSkel_skel {M A B} `{LessDefined B} `{Exact A B}
+    (m : MSeq M (MTuple M A)) (mD : T (MSeqA M (MTupleA M B))) :
+  mD `less_defined` exact m ->
+  Thunk (mseqSkel m) `less_defined` addSkel m mD.
+Proof.
+  intro Hm. destruct mD as [s|]; cbn.
+  - apply TThunkThunk_inv in Hm.
+    destruct m as [|x|vm pr mm sf]; invert_clear Hm; cbn;
+      constructor; constructor;
+      first [ apply addTupleSkel_skel; assumption
+            | apply addDigitSkel_skel; assumption
+            | constructor ].
+  - constructor; apply mseqSkel_le_refl.
+Qed.
+
+(** Borrowed-tuple/digit order plumbing. *)
+Lemma tupleToDigitA_exact_mono {M A B} `{LessDefined B} `{Exact A B}
+    (t1 : MTuple M A) (v : MTupleA M B) :
+  v `less_defined` exact t1 ->
+  tupleToDigitA v `less_defined` exact (tupleToDigit t1).
+Proof.
+  intro Hv. destruct t1 as [c a b|c a b d]; invert_clear Hv; cbn;
+    repeat constructor; assumption.
+Qed.
+
+Lemma tupleDmd_digit_le {M A B} `{LessDefined B} `{Exact A B}
+    (t1 : MTuple M A) (prD : T (DigitA B)) (v : MTupleA M B) :
+  prD `less_defined` exact (tupleToDigit t1) ->
+  tupleDmdOfDigitDmd t1 prD `less_defined` Thunk v ->
+  prD `less_defined` Thunk (tupleToDigitA v).
+Proof.
+  intros Hpr Hv. destruct prD as [dd|]; [ | constructor ].
+  destruct t1 as [c a b|c a b d];
+    apply TThunkThunk_inv in Hpr; cbn in Hpr; invert_clear Hpr;
+    cbn in Hv; apply TThunkThunk_inv in Hv; invert_clear Hv;
+    cbn; repeat constructor; assumption.
+Qed.
+
+(** *** 12b. Measure and node-building specs (tick-free, cost 0) *)
+
+Lemma measureDigitA_skel_spec {M A B} `{Monoid M}
+    `{LessDefined B} `{Exact A B}
+    (d : Digit (MTuple M A)) (dd : DigitA (MTupleA M B)) :
+  digitSkel d `less_defined` dd ->
+  dd `less_defined` exact d ->
+  measureDigitA measureMTupleA dd [[ fun out cost =>
+    out = measureDigit measureMTuple d /\ cost <= 0 ]].
+Proof.
+  intros Hlo Hup.
+  destruct d as [x|x y|x y z]; cbn in Hlo;
+    invert_clear Hlo; invert_clear Hup.
+  all: repeat match goal with
+         | Hl : Thunk (mtupleSkel _) `less_defined` ?s,
+           Hu : ?s `less_defined` _ |- _ =>
+             let v := fresh "v" in
+             destruct (TThunk_inv Hl) as (v & -> & _); clear Hl;
+             apply TThunkThunk_inv in Hu
+         end.
+  all: cbn; mgo_;
+       repeat (erewrite measureMTupleA_coh by eassumption);
+       split; [ reflexivity | lia ].
+Qed.
+
+Lemma measureSeqA_spec {M A B} `{Monoid M}
+    `{LessDefined B} `{Exact A B}
+    (m : MSeq M (MTuple M A)) (v : MSeqA M (MTupleA M B)) :
+  mseqSkel m `less_defined` v ->
+  v `less_defined` exact m ->
+  measureSeqA v [[ fun out cost =>
+    out = measureSeq measureMTuple m /\ cost <= 0 ]].
+Proof.
+  intros Hlo Hup.
+  destruct m as [|x|vm pr mm sf]; cbn in Hlo;
+    invert_clear Hlo; invert_clear Hup.
+  - (* MNil *)
+    cbn. mgo_.
+  - (* MUnit *)
+    match goal with
+    | Hl : Thunk (mtupleSkel _) `less_defined` ?xT,
+      Hu : ?xT `less_defined` _ |- _ =>
+        destruct (TThunk_inv Hl) as (xv & -> & _);
+        apply TThunkThunk_inv in Hu
+    end.
+    cbn. mgo_.
+    erewrite measureMTupleA_coh by eassumption.
+    split; [ reflexivity | lia ].
+  - (* MMore *)
+    repeat match goal with
+      | Hl : Thunk (digitSkel _) `less_defined` ?s,
+        Hu : ?s `less_defined` _ |- _ =>
+          let dd := fresh "dd" in
+          destruct (TThunk_inv Hl) as (dd & -> & ?); clear Hl;
+          apply TThunkThunk_inv in Hu
+      end.
+    cbn. mgo_.
+    eapply optimistic_mon;
+      [ apply measureDigitA_skel_spec; eassumption | ].
+    intros vpr n [-> Hn]. mgo_.
+    eapply optimistic_mon;
+      [ apply measureDigitA_skel_spec; eassumption | ].
+    intros vsf n' [-> Hn']. mgo_.
+    split; [ reflexivity | lia ].
+Qed.
+
+Lemma mdeepA_spec {M A B} `{Monoid M}
+    `{LessDefined B} `{Exact A B}
+    (m : MSeq M (MTuple M A)) (mT : T (MSeqA M (MTupleA M B)))
+    (prT sfT : T (DigitA B)) :
+  Thunk (mseqSkel m) `less_defined` mT ->
+  mT `less_defined` Thunk (exact m) ->
+  mdeepA prT mT sfT [[ fun out cost =>
+    out = MMoreA (measureSeq measureMTuple m) prT mT sfT /\ cost <= 0 ]].
+Proof.
+  intros Hlo Hup.
+  destruct (TThunk_inv Hlo) as (mv & -> & Hskel).
+  apply TThunkThunk_inv in Hup.
+  unfold mdeepA. mgo_.
+  eapply optimistic_mon; [ apply measureSeqA_spec; eassumption | ].
+  intros vm n [-> Hn]. mgo_.
+  split; [ reflexivity | lia ].
+Qed.
+
+(** *** 12c. Rebuild and digit-scan specs *)
+
+(** Exact slot lists, with the element type pinned.  (Do NOT write
+    [map exact xs]: the unapplied [exact] leaves the target type free
+    and instance search diverges through [Exact_T].) *)
+Definition exactList {A B} `{Exact A B} (xs : list A) : list (T B) :=
+  map (fun a => Thunk (exact a)) xs.
+
+(** Rebuilding from exact slots gives the exact tree (the [toTreeD]
+    call sites: visited digits are demanded at [exact]). *)
+Lemma toTreeA_exact_spec {M A B} `{Monoid M}
+    `{LDB : LessDefined B, !Reflexive LDB, Exact A B}
+    (md : A -> M) (xs : list A) :
+  length xs <= 3 ->
+  toTreeA (exactList xs) [[ fun out cost =>
+    out = exact (toTree md xs) /\ cost <= 0 ]].
+Proof.
+  intro Hlen.
+  destruct xs as [|a [|b [|c [|d ws] ] ] ]; cbn in Hlen; try lia.
+  all: cbn; mgo_.
+Qed.
+
+(** Rebuilding from a sandwiched digit dominates the [toTreeDmd]-shaped
+    demand (the cascades' empty-middle case). *)
+Lemma toTreeA_run_spec {M A B} `{Monoid M}
+    `{LDB : LessDefined B, !Reflexive LDB, Exact A B}
+    (md : A -> M) (d : Digit A) (tD : T (MSeqA M B)) (dd : DigitA B) :
+  tD `less_defined` exact (toTree md (digitToList d)) ->
+  toTreeDmd d tD `less_defined` Thunk dd ->
+  dd `less_defined` exact d ->
+  toTreeA (digitToListA dd) [[ fun out cost =>
+    tD `less_defined` Thunk out
+    /\ out `less_defined` exact (toTree md (digitToList d))
+    /\ cost <= 0 ]].
+Proof.
+  intros Ht Hdmd Hup.
+  destruct d as [a|a b|a b c]; cbn in Ht, Hdmd, Hup |- *;
+    invert_clear Hup.
+  - (* One *)
+    cbn. mgo_.
+    destruct tD as [out0|]; [ | constructor ].
+    apply TThunkThunk_inv in Ht. invert_clear Ht.
+    cbn in Hdmd. apply TThunkThunk_inv in Hdmd. invert_clear Hdmd.
+    repeat constructor. assumption.
+  - (* Two *)
+    cbn. mgo_.
+    destruct tD as [out0|]; [ | constructor ].
+    apply TThunkThunk_inv in Ht.
+    invert_clear Ht as [ | | vm0 prD prE mD0 mE sfD0 sfE Hpr Hm Hsf ].
+    cbn in Hdmd. apply TThunkThunk_inv in Hdmd.
+    invert_clear Hdmd as [ | ? ? ? ? Hs1 Hs2 | ].
+    constructor. constructor; [ | exact Hm | ].
+    + destruct prD as [dd1|]; [ | constructor ].
+      apply TThunkThunk_inv in Hpr. invert_clear Hpr.
+      cbn in Hs1. repeat constructor. exact Hs1.
+    + destruct sfD0 as [dd2|]; [ | constructor ].
+      apply TThunkThunk_inv in Hsf. invert_clear Hsf.
+      cbn in Hs2. repeat constructor. exact Hs2.
+  - (* Three *)
+    cbn. mgo_.
+    destruct tD as [out0|]; [ | constructor ].
+    apply TThunkThunk_inv in Ht.
+    invert_clear Ht as [ | | vm0 prD prE mD0 mE sfD0 sfE Hpr Hm Hsf ].
+    cbn in Hdmd. apply TThunkThunk_inv in Hdmd.
+    invert_clear Hdmd as [ | | ? ? ? ? ? ? Hs1 Hs2 Hs3 ].
+    constructor. constructor; [ | exact Hm | ].
+    + destruct prD as [dd1|]; [ | constructor ].
+      apply TThunkThunk_inv in Hpr. invert_clear Hpr.
+      cbn in Hs1, Hs2. repeat constructor; assumption.
+    + destruct sfD0 as [dd2|]; [ | constructor ].
+      apply TThunkThunk_inv in Hsf. invert_clear Hsf.
+      cbn in Hs3. repeat constructor. exact Hs3.
+Qed.
+
+(** The digit scan on an exact digit returns exact slot lists (visited
+    digits are demanded at [exact]; cf. [lookupDigitA_exact_spec]). *)
+Lemma splitDigitA_exact_spec {M A B} `{Monoid M}
+    `{LDB : LessDefined B, !Reflexive LDB, Exact A B}
+    (md : A -> M) (mdB : B -> M)
+    (HcohE : forall x : A, mdB (exact x) = md x)
+    (p : M -> bool) (b : M) (d : Digit A)
+    (l : list A) (x : A) (r : list A) :
+  splitDigit md p b d = (l, x, r) ->
+  splitDigitA mdB p b (exact d) [[ fun out cost =>
+    out = (exactList l, exact x, exactList r) /\ cost <= 0 ]].
+Proof.
+  destruct d as [a|a b2|a b2 c2]; intro Hsd;
+    unfold splitDigit in Hsd; cbn in Hsd |- *.
+  - injection Hsd as <- <- <-. mgo_.
+  - mgo_. rewrite HcohE.
+    destruct (p (b <+> md a)) eqn:Hp; try rewrite Hp in Hsd;
+      cbn in Hsd; injection Hsd as <- <- <-; mgo_.
+  - mgo_. rewrite HcohE.
+    destruct (p (b <+> md a)) eqn:Hp1; try rewrite Hp1 in Hsd; cbn in Hsd.
+    + injection Hsd as <- <- <-. mgo_.
+    + mgo_. rewrite HcohE.
+      destruct (p (b <+> md a <+> md b2)) eqn:Hp2; try rewrite Hp2 in Hsd;
+        cbn in Hsd; injection Hsd as <- <- <-; mgo_.
+Qed.
+
+(** The pivot-node scan, sandwiched (cf. [lookupNodeA_spec]): the input
+    tuple value sits between the faithful pivot demand and [exact]; the
+    scan slots come back exact-from-below, the after-pivot slots
+    dominate the unbundled element demands [rEl]. *)
+Lemma splitNodeA_spec {M A B} `{Monoid M}
+    `{LDB : LessDefined B, !Reflexive LDB, !Transitive LDB, Exact A B}
+    (md : A -> M) (mdB : B -> M)
+    (Hcoh : forall (x : A) (v : B),
+        exact x `less_defined` v -> v `less_defined` exact x -> mdB v = md x)
+    (p : M -> bool) (b : M) (xs : MTuple M A) (v : MTupleA M B)
+    (xD : T B) (rEl : list (T B)) (dflt : A)
+    (l1 : list A) (x1 : A) (r1 : list A) :
+  splitDigit md p b (tupleToDigit xs) = (l1, x1, r1) ->
+  pivotNodeDmd_f md p b xs xD rEl `less_defined` v ->
+  v `less_defined` exact xs ->
+  xD `less_defined` exact x1 ->
+  splitDigitA mdB p b (tupleToDigitA v) [[ fun out cost =>
+    length (fst (fst out)) = length l1
+    /\ (forall k, k < length l1 ->
+          Thunk (exact (nth k l1 dflt)) `less_defined` nth k (fst (fst out)) Undefined)
+    /\ (forall k, nth k (fst (fst out)) Undefined
+          `less_defined` exact (nth k l1 dflt))
+    /\ xD `less_defined` snd (fst out)
+    /\ snd (fst out) `less_defined` exact x1
+    /\ length (snd out) = length r1
+    /\ (forall k, k < length r1 ->
+          nth k rEl Undefined `less_defined` nth k (snd out) Undefined)
+    /\ (forall k, nth k (snd out) Undefined
+          `less_defined` exact (nth k r1 dflt))
+    /\ cost <= 0 ]].
+Proof.
+  intros Hsd Hlo Hup Hx.
+  destruct xs as [c x y | c x y z];
+    unfold pivotNodeDmd_f in Hlo;
+    unfold splitDigit, tupleToDigit in Hsd; cbn in Hsd |- *;
+    [ invert_clear Hup as [ ? ? x2 ? y2 Hx2 Hy2 | ]
+    | invert_clear Hup as [ | ? ? x2 ? y2 ? z2 Hx2 Hy2 Hz2 ] ].
+  - (* Pair *)
+    destruct (p (b <+> md x)) eqn:Hp; try rewrite Hp in Hsd; cbn in Hsd;
+      invert_clear Hlo as [ ? ? ? ? ? Hx0 Hy0 | ];
+      destruct (TThunk_inv Hx0) as (xv & -> & Hxv);
+      pose proof (TThunkThunk_inv Hx2) as Hxv';
+      injection Hsd as <- <- <-;
+      cbn; mgo_;
+      rewrite (Hcoh x xv Hxv Hxv'), Hp;
+      cbn; apply optimistic_ret; cbn; repeat split.
+    + (* pivot = x, r1 = [y] *)
+      intros k Hk; cbn in Hk; lia.
+    + intro k; destruct k; cbn; constructor.
+    + etransitivity; [ exact Hx | constructor; exact Hxv ].
+    + constructor; exact Hxv'.
+    + intros k Hk; destruct k; [ exact Hy0 | cbn in Hk; lia ].
+    + intro k; destruct k as [|k]; cbn;
+        [ exact Hy2 | destruct k; constructor ].
+    + lia.
+    + (* pivot = y, l1 = [x] *)
+      intros k Hk; destruct k; [ constructor; exact Hxv | cbn in Hk; lia ].
+    + intro k; destruct k as [|k]; cbn;
+        [ constructor; exact Hxv' | destruct k; constructor ].
+    + exact Hy0.
+    + exact Hy2.
+    + intros k Hk; cbn in Hk; lia.
+    + intro k; destruct k; cbn; constructor.
+    + lia.
+  - (* Triple *)
+    destruct (p (b <+> md x)) eqn:Hp1; try rewrite Hp1 in Hsd.
+    + (* pivot = x, r1 = [y; z] *)
+      cbn in Hsd.
+      invert_clear Hlo as [ | ? ? ? ? ? ? ? Hx0 Hy0 Hz0 ].
+      destruct (TThunk_inv Hx0) as (xv & -> & Hxv).
+      pose proof (TThunkThunk_inv Hx2) as Hxv'.
+      injection Hsd as <- <- <-.
+      cbn; mgo_. rewrite (Hcoh x xv Hxv Hxv'), Hp1.
+      cbn; apply optimistic_ret; cbn; repeat split.
+      * intros k Hk; cbn in Hk; lia.
+      * intro k; destruct k; cbn; constructor.
+      * etransitivity; [ exact Hx | constructor; exact Hxv ].
+      * constructor; exact Hxv'.
+      * intros k Hk; destruct k as [|k]; [ exact Hy0 | ].
+        destruct k; [ exact Hz0 | cbn in Hk; lia ].
+      * intro k; destruct k as [|k]; cbn; [ exact Hy2 | ].
+        destruct k as [|k]; cbn; [ exact Hz2 | destruct k; constructor ].
+      * lia.
+    + destruct (p (b <+> md x <+> md y)) eqn:Hp2; try rewrite Hp2 in Hsd;
+        cbn in Hsd;
+        invert_clear Hlo as [ | ? ? ? ? ? ? ? Hx0 Hy0 Hz0 ];
+        destruct (TThunk_inv Hx0) as (xv & -> & Hxv);
+        pose proof (TThunkThunk_inv Hx2) as Hxv';
+        destruct (TThunk_inv Hy0) as (yv & -> & Hyv);
+        pose proof (TThunkThunk_inv Hy2) as Hyv';
+        injection Hsd as <- <- <-;
+        cbn; mgo_;
+        rewrite (Hcoh x xv Hxv Hxv'), Hp1;
+        cbn; mgo_;
+        rewrite (Hcoh y yv Hyv Hyv'), Hp2;
+        cbn; apply optimistic_ret; cbn; repeat split.
+      * (* pivot = y, l1 = [x], r1 = [z] *)
+        intros k Hk; destruct k; [ constructor; exact Hxv | cbn in Hk; lia ].
+      * intro k; destruct k as [|k]; cbn;
+          [ constructor; exact Hxv' | destruct k; constructor ].
+      * etransitivity; [ exact Hx | constructor; exact Hyv ].
+      * constructor; exact Hyv'.
+      * intros k Hk; destruct k; [ exact Hz0 | cbn in Hk; lia ].
+      * intro k; destruct k as [|k]; cbn;
+          [ exact Hz2 | destruct k; constructor ].
+      * lia.
+      * (* pivot = z, l1 = [x; y] *)
+        intros k Hk; destruct k as [|k]; [ constructor; exact Hxv | ].
+        destruct k; [ constructor; exact Hyv | cbn in Hk; lia ].
+      * intro k; destruct k as [|k]; cbn; [ constructor; exact Hxv' | ].
+        destruct k as [|k]; cbn;
+          [ constructor; exact Hyv' | destruct k; constructor ].
+      * exact Hz0.
+      * exact Hz2.
+      * intros k Hk; cbn in Hk; lia.
+      * intro k; destruct k; cbn; constructor.
+      * lia.
+Qed.
+
+(* ================================================================= *)
 (** ** End of FingerSplit                                              *)
 (* ================================================================= *)
