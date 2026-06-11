@@ -95,3 +95,12 @@ Locate splitTreeD_cost.
 Print Assumptions FingerSplit.splitTreeD_cost.
 Locate split_O_log_n.
 Print Assumptions FingerSplit.split_O_log_n.
+
+(** ===== Faithful split: telescoping worst-case O(log n) cost ===== *)
+
+Locate splitTreeD_f_cost_pot.
+Print Assumptions FingerSplit.splitTreeD_f_cost_pot.
+Locate splitTreeD_f_cost.
+Print Assumptions FingerSplit.splitTreeD_f_cost.
+Locate split_f_O_log_n.
+Print Assumptions FingerSplit.split_f_O_log_n.
