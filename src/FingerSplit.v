@@ -2507,6 +2507,21 @@ Arguments viewRD_f : simpl never.
 Arguments deepLD_f : simpl never.
 Arguments deepRD_f : simpl never.
 
+(** Likewise the demand-side skeleton/reassembly helpers: they occur in
+    [splitTreeD_f]'s recursive demand triple, and the main approximation
+    induction must keep them folded so the IH links against the
+    [_approx] lemmas above. *)
+Arguments mtupleSkel : simpl never.
+Arguments digitSkel : simpl never.
+Arguments mseqSkel : simpl never.
+Arguments addTupleSkel : simpl never.
+Arguments addDigitSkel : simpl never.
+Arguments addSkel : simpl never.
+Arguments tupleDmdOfDigitDmd : simpl never.
+Arguments toTreeDmd : simpl never.
+Arguments borrowDmdL : simpl never.
+Arguments borrowDmdR : simpl never.
+
 (** Keep the pure helpers folded too: the main induction reasons about
     them only through the lemmas above and the [eqn:] equations. *)
 Arguments splitDigit : simpl never.
@@ -2626,6 +2641,100 @@ Proof.
   pose proof (splitTreeD_f_cost md dflt p i t outD) as Hc.
   pose proof (@depth_log_size _ _ t Hne) as Hd.
   unfold split_f_c1, split_f_c2 in *. nia.
+Qed.
+
+(** *** M9b — the headline approximation theorem: whenever the output
+    demand approximates the pure split of [t], the input demand computed
+    by [splitTreeD_f] approximates [t].  Component-wise statement with
+    an equation hypothesis (there are no plain-product
+    [LessDefined]/[Exact] instances — the [glueD'_approx] convention). *)
+Theorem splitTreeD_f_approx {M} `{Monoid M} :
+  forall (A : Type) (t : MSeq M A),
+  forall (B : Type) (LDB : LessDefined B)
+         (RLDB : Reflexive (less_defined (a := B))) (EAB : Exact A B)
+         (md : A -> M) (dflt : A) (p : M -> bool) (i : M)
+         (lD : T (MSeqA M B)) (xD : T B) (rD : T (MSeqA M B))
+         (l : MSeq M A) (x : A) (r : MSeq M A),
+    splitTree md dflt p i t = (l, x, r) ->
+    lD `is_approx` l -> xD `is_approx` x -> rD `is_approx` r ->
+    Tick.val (splitTreeD_f md dflt p i t (lD, xD, rD)) `is_approx` t.
+Proof.
+  apply (MSeq_ind_poly (M := M)
+    (fun A t =>
+       forall (B : Type) (LDB : LessDefined B)
+              (RLDB : Reflexive (less_defined (a := B))) (EAB : Exact A B)
+              (md : A -> M) (dflt : A) (p : M -> bool) (i : M)
+              (lD : T (MSeqA M B)) (xD : T B) (rD : T (MSeqA M B))
+              (l : MSeq M A) (x : A) (r : MSeq M A),
+         splitTree md dflt p i t = (l, x, r) ->
+         lD `is_approx` l -> xD `is_approx` x -> rD `is_approx` r ->
+         Tick.val (splitTreeD_f md dflt p i t (lD, xD, rD)) `is_approx` t)).
+  - (* MNil: demand is ⊥ *)
+    intros A B LDB RLDB EAB md dflt p i lD xD rD l x r Hsp Hl Hx Hr.
+    cbn. constructor.
+  - (* MUnit: demand is the pivot demand *)
+    intros A x0 B LDB RLDB EAB md dflt p i lD xD rD l x r Hsp Hl Hx Hr.
+    cbn in Hsp. injection Hsp as ? ? ?; subst.
+    cbn. repeat constructor. exact Hx.
+  - (* MMore: the three-way branch of the descent *)
+    intros A vm pr m sf IH B LDB RLDB EAB md dflt p i lD xD rD l x r
+      Hsp Hl Hx Hr.
+    cbn in Hsp. cbn.
+    destruct (p (i <+> measureDigit md pr)) eqn:Hp1.
+    + (* branch 1: pivot in the front digit *)
+      destruct (splitDigit md p i pr) as [ [l1 x1] r1] eqn:Hsd.
+      injection Hsp as ? ? ?; subst.
+      cbn.
+      destruct (Tick.val (deepLD_f (B := B) dflt r1 m sf rD))
+        as [ [rEl mD] sfD1] eqn:HvL.
+      cbn.
+      pose proof (deepLD_f_approx md dflt r1 sf HvL Hr) as [Hslots HmD].
+      constructor. constructor; [ reflexivity | exact HmD | reflexivity ].
+    + destruct (p (i <+> measureDigit md pr <+> vm)) eqn:Hp2.
+      * (* branch 2: descend into the middle *)
+        destruct (splitTree measureMTuple (MPair mzero dflt dflt) p
+                    (i <+> measureDigit md pr) m)
+          as [ [ml xs] mr] eqn:Hst.
+        destruct (splitDigit md p
+                    (i <+> measureDigit md pr <+> measureSeq measureMTuple ml)
+                    (tupleToDigit xs))
+          as [ [l1 x1] r1] eqn:Hsd.
+        injection Hsp as ? ? ?; subst.
+        cbn.
+        destruct (Tick.val (deepRD_f (B := B) dflt pr ml l1 lD))
+          as [ [prD0 mlD0] lEl] eqn:HvR.
+        cbn.
+        destruct (Tick.val (deepLD_f (B := B) dflt r1 mr sf rD))
+          as [ [rEl mrD] sfD1] eqn:HvL.
+        cbn.
+        pose proof (deepRD_f_approx md dflt pr l1 HvR Hl) as HmlD0.
+        pose proof (deepLD_f_approx md dflt r1 sf HvL Hr) as [Hslots HmrD].
+        (* the three demand facts for the recursive call *)
+        assert (Hml' : addSkel ml mlD0 `less_defined` exact ml)
+          by (apply addSkel_approx; exact HmlD0).
+        assert (Hxs' : Thunk (pivotNodeDmd_f md p
+                         (i <+> measureDigit md pr
+                            <+> measureSeq measureMTuple ml)
+                         xs xD rEl)
+                       `less_defined` exact xs).
+        { constructor.
+          eapply pivotNodeDmd_f_approx;
+            [ exact Hsd | exact Hx | exact Hslots ]. }
+        specialize (IH (MTupleA M B) _ _ _
+                      measureMTuple (MPair mzero dflt dflt) p
+                      (i <+> measureDigit md pr)
+                      _ _ _ ml xs mr Hst Hml' Hxs' HmrD).
+        constructor. constructor; [ reflexivity | exact IH | reflexivity ].
+      * (* branch 3: pivot in the rear digit *)
+        destruct (splitDigit md p (i <+> measureDigit md pr <+> vm) sf)
+          as [ [l1 x1] r1] eqn:Hsd.
+        injection Hsp as ? ? ?; subst.
+        cbn.
+        destruct (Tick.val (deepRD_f (B := B) dflt pr m l1 lD))
+          as [ [prD0 mD] lEl] eqn:HvR.
+        cbn.
+        pose proof (deepRD_f_approx md dflt pr l1 HvR Hl) as HmD.
+        constructor. constructor; [ reflexivity | exact HmD | reflexivity ].
 Qed.
 
 (* ================================================================= *)

@@ -104,3 +104,8 @@ Locate splitTreeD_f_cost.
 Print Assumptions FingerSplit.splitTreeD_f_cost.
 Locate split_f_O_log_n.
 Print Assumptions FingerSplit.split_f_O_log_n.
+
+(** ===== Faithful split: demand approximation ===== *)
+
+Locate splitTreeD_f_approx.
+Print Assumptions FingerSplit.splitTreeD_f_approx.
