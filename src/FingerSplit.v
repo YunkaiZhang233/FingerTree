@@ -2058,6 +2058,448 @@ Proof.
     + simpl; pose proof (rvc_pos m); lia.
 Qed.
 
+(** *** Approximation facts for the faithful demand machinery (4c).
+    Helper-level lemmas live here, BEFORE the [simpl never] directives
+    below, so their proofs may still unfold the subjects; the main
+    [splitTreeD_f_approx] (Section 11) sees everything folded and uses
+    only these interfaces. *)
+
+Lemma mtupleSkel_approx {M A B} `{LessDefined B} `{Exact A B}
+    (t : MTuple M A) :
+  mtupleSkel (B := B) t `less_defined` exact t.
+Proof. destruct t; cbn; repeat constructor. Qed.
+
+Lemma digitSkel_approx {M A B} `{LessDefined B} `{Exact A B}
+    (d : Digit (MTuple M A)) :
+  digitSkel (B := B) d `less_defined` exact d.
+Proof.
+  destruct d; cbn; repeat constructor; apply mtupleSkel_approx.
+Qed.
+
+Lemma mseqSkel_approx {M A B} `{LessDefined B} `{Exact A B}
+    (m : MSeq M (MTuple M A)) :
+  mseqSkel (B := B) m `less_defined` exact m.
+Proof.
+  destruct m; cbn; repeat constructor;
+    first [ apply mtupleSkel_approx | apply digitSkel_approx ].
+Qed.
+
+Lemma addTupleSkel_approx {M A B} `{LessDefined B} `{Exact A B}
+    (x : MTuple M A) (xD : T (MTupleA M B)) :
+  xD `less_defined` exact x ->
+  addTupleSkel x xD `less_defined` exact x.
+Proof.
+  intro Hx. destruct xD as [v|]; cbn.
+  - exact Hx.
+  - constructor. apply mtupleSkel_approx.
+Qed.
+
+Lemma addDigitSkel_approx {M A B} `{LessDefined B} `{Exact A B}
+    (d : Digit (MTuple M A)) (dD : T (DigitA (MTupleA M B))) :
+  dD `less_defined` exact d ->
+  addDigitSkel d dD `less_defined` exact d.
+Proof.
+  intro Hd. destruct dD as [dd|]; cbn.
+  - apply TThunkThunk_inv in Hd.
+    destruct d as [x|x y|x y z]; invert_clear Hd; cbn;
+      repeat constructor; apply addTupleSkel_approx; assumption.
+  - constructor. apply digitSkel_approx.
+Qed.
+
+Lemma addSkel_approx {M A B} `{LessDefined B} `{Exact A B}
+    (m : MSeq M (MTuple M A)) (mD : T (MSeqA M (MTupleA M B))) :
+  mD `less_defined` exact m ->
+  addSkel m mD `less_defined` exact m.
+Proof.
+  intro Hm. destruct mD as [sm|]; cbn.
+  - apply TThunkThunk_inv in Hm.
+    destruct m as [|x|vm pr mm sf]; invert_clear Hm; cbn;
+      repeat constructor;
+      first [ apply addTupleSkel_approx; assumption
+            | apply addDigitSkel_approx; assumption
+            | assumption ].
+  - constructor. apply mseqSkel_approx.
+Qed.
+
+Lemma tupleDmdOfDigitDmd_approx {M A B} `{LessDefined B} `{Exact A B}
+    (t1 : MTuple M A) (dD : T (DigitA B)) :
+  dD `less_defined` exact (tupleToDigit t1) ->
+  tupleDmdOfDigitDmd t1 dD `less_defined` exact t1.
+Proof.
+  intro Hd. destruct dD as [dd|].
+  - apply TThunkThunk_inv in Hd.
+    destruct t1 as [c x y|c x y z]; cbn in Hd |- *; invert_clear Hd;
+      repeat constructor; assumption.
+  - destruct t1; cbn; repeat constructor.
+Qed.
+
+Lemma toTreeDmd_approx {M A B} `{Monoid M} `{LessDefined B} `{Exact A B}
+    (md : A -> M) (d : Digit A) (tD : T (MSeqA M B)) :
+  tD `less_defined` exact (toTree md (digitToList d)) ->
+  toTreeDmd d tD `less_defined` exact d.
+Proof.
+  intro Ht. destruct tD as [st|]; cbn; [|destruct d; constructor].
+  apply TThunkThunk_inv in Ht.
+  destruct d as [a|a b|a b c]; cbn in Ht |- *.
+  - (* One: toTree = MUnit a *)
+    invert_clear Ht as [ | aD aE HaD | ].
+    repeat constructor; assumption.
+  - (* Two: toTree = MMore _ (One a) MNil (One b) *)
+    invert_clear Ht as [ | | vm0 prD f2 mD0 m2 sfD r2 Hpr Hsf' Hsf ].
+    destruct prD as [dd1|];
+      [ apply TThunkThunk_inv in Hpr; invert_clear Hpr | ];
+      (destruct sfD as [dd2|];
+        [ apply TThunkThunk_inv in Hsf; invert_clear Hsf | ]);
+      cbn; repeat constructor; try assumption.
+  - (* Three: toTree = MMore _ (Two a b) MNil (One c) *)
+    invert_clear Ht as [ | | vm0 prD f2 mD0 m2 sfD r2 Hpr Hsf' Hsf ].
+    destruct prD as [dd1|];
+      [ apply TThunkThunk_inv in Hpr; invert_clear Hpr | ];
+      (destruct sfD as [dd2|];
+        [ apply TThunkThunk_inv in Hsf; invert_clear Hsf | ]);
+      cbn; repeat constructor; try assumption.
+Qed.
+
+Lemma borrowDmdL_approx {M} {A B} `{Monoid M} `{LessDefined B} `{Exact A B}
+    (md : A -> M) (t1 : MTuple M A) (m' : MSeq M (MTuple M A)) (sf : Digit A)
+    (outD : T (MSeqA M B)) (t1D : T (MTupleA M B))
+    (m'D : T (MSeqA M (MTupleA M B))) (sfD : T (DigitA B)) :
+  borrowDmdL t1 m' outD = (t1D, m'D, sfD) ->
+  outD `less_defined` exact (mdeep md (tupleToDigit t1) m' sf) ->
+  t1D `less_defined` exact t1
+  /\ m'D `less_defined` exact m'
+  /\ sfD `less_defined` exact sf.
+Proof.
+  intros Hb Ho. destruct outD as [out|].
+  - apply TThunkThunk_inv in Ho. unfold mdeep in Ho. cbn in Ho.
+    invert_clear Ho. cbn in Hb.
+    injection Hb as ? ? ?; subst.
+    split; [|split].
+    + apply tupleDmdOfDigitDmd_approx; assumption.
+    + apply addSkel_approx; assumption.
+    + assumption.
+  - cbn in Hb. injection Hb as ? ? ?; subst.
+    repeat constructor.
+Qed.
+
+Lemma borrowDmdR_approx {M} {A B} `{Monoid M} `{LessDefined B} `{Exact A B}
+    (md : A -> M) (pr : Digit A) (m' : MSeq M (MTuple M A)) (t1 : MTuple M A)
+    (outD : T (MSeqA M B)) (prD : T (DigitA B))
+    (m'D : T (MSeqA M (MTupleA M B))) (t1D : T (MTupleA M B)) :
+  borrowDmdR m' t1 outD = (prD, m'D, t1D) ->
+  outD `less_defined` exact (mdeep md pr m' (tupleToDigit t1)) ->
+  prD `less_defined` exact pr
+  /\ m'D `less_defined` exact m'
+  /\ t1D `less_defined` exact t1.
+Proof.
+  intros Hb Ho. destruct outD as [out|].
+  - apply TThunkThunk_inv in Ho. unfold mdeep in Ho. cbn in Ho.
+    invert_clear Ho. cbn in Hb.
+    injection Hb as ? ? ?; subst.
+    split; [|split].
+    + assumption.
+    + apply addSkel_approx; assumption.
+    + apply tupleDmdOfDigitDmd_approx; assumption.
+  - cbn in Hb. injection Hb as ? ? ?; subst.
+    repeat constructor.
+Qed.
+
+(** The cascades return approximations of their input trees. *)
+Lemma viewLD_f_approx {M} `{Monoid M} :
+  forall (A : Type) (t : MSeq M A),
+  forall (B : Type) (LDB : LessDefined B)
+         (RLDB : Reflexive (less_defined (a := B))) (EAB : Exact A B)
+         (md : A -> M) (dflt : A) (x0 : A) (t' : MSeq M A)
+         (xD : T B) (tD : T (MSeqA M B)),
+    viewL md dflt t = Some (x0, t') ->
+    xD `is_approx` x0 ->
+    tD `is_approx` t' ->
+    Tick.val (viewLD_f dflt t xD tD) `is_approx` t.
+Proof.
+  apply (MSeq_ind_poly (M := M)
+    (fun A t =>
+       forall (B : Type) (LDB : LessDefined B)
+              (RLDB : Reflexive (less_defined (a := B))) (EAB : Exact A B)
+              (md : A -> M) (dflt : A) (x0 : A) (t' : MSeq M A)
+              (xD : T B) (tD : T (MSeqA M B)),
+         viewL md dflt t = Some (x0, t') ->
+         xD `is_approx` x0 ->
+         tD `is_approx` t' ->
+         Tick.val (viewLD_f dflt t xD tD) `is_approx` t)).
+  - (* MNil *)
+    intros A B LDB RLDB EAB md dflt x0 t' xD tD Hv Hx Ht.
+    discriminate Hv.
+  - (* MUnit *)
+    intros A x B LDB RLDB EAB md dflt x0 t' xD tD Hv Hx Ht.
+    cbn in Hv. injection Hv as ? ?; subst.
+    cbn. repeat constructor. exact Hx.
+  - (* MMore *)
+    intros A vm pr m sf IH B LDB RLDB EAB md dflt x0 t' xD tD Hv Hx Ht.
+    destruct pr as [a|a b|a b c].
+    + (* One: the cascade *)
+      cbn in Hv. cbn.
+      destruct (viewL measureMTuple (MPair mzero dflt dflt) m)
+        as [ [t1 m'']|] eqn:Hv2.
+      * injection Hv as ? ?; subst.
+        destruct (borrowDmdL t1 m'' tD) as [ [t1D m'D] sfD] eqn:Hb.
+        pose proof (borrowDmdL_approx Hb Ht)
+          as (Ht1 & Hm' & Hsf).
+        cbn. repeat constructor; [ exact Hx | | exact Hsf ].
+        eapply (IH (MTupleA M B) _ _ _
+                  measureMTuple (MPair mzero dflt dflt) t1 m'');
+          eassumption.
+      * (* viewL m = None: m = MNil *)
+        apply viewL_None in Hv2. subst m.
+        injection Hv as ? ?; subst.
+        cbn. repeat constructor; [ exact Hx | ].
+        apply toTreeDmd_approx with (md := md). exact Ht.
+    + (* Two *)
+      cbn in Hv. injection Hv as ? ?; subst.
+      destruct tD as [st|].
+      * apply TThunkThunk_inv in Ht.
+        invert_clear Ht as [ | | vm0 prD prE mD0 mE sfD sfE Hpr Hm Hsf ].
+        destruct prD as [dd|];
+          [ apply TThunkThunk_inv in Hpr; invert_clear Hpr | ];
+          cbn; repeat constructor;
+          first [ exact Hx
+                | apply addSkel_approx; assumption
+                | assumption ].
+      * cbn. repeat constructor. exact Hx.
+    + (* Three *)
+      cbn in Hv. injection Hv as ? ?; subst.
+      destruct tD as [st|].
+      * apply TThunkThunk_inv in Ht.
+        invert_clear Ht as [ | | vm0 prD prE mD0 mE sfD sfE Hpr Hm Hsf ].
+        destruct prD as [dd|];
+          [ apply TThunkThunk_inv in Hpr; invert_clear Hpr | ];
+          cbn; repeat constructor;
+          first [ exact Hx
+                | apply addSkel_approx; assumption
+                | assumption ].
+      * cbn. repeat constructor. exact Hx.
+Qed.
+
+Lemma viewRD_f_approx {M} `{Monoid M} :
+  forall (A : Type) (t : MSeq M A),
+  forall (B : Type) (LDB : LessDefined B)
+         (RLDB : Reflexive (less_defined (a := B))) (EAB : Exact A B)
+         (md : A -> M) (dflt : A) (x0 : A) (t' : MSeq M A)
+         (xD : T B) (tD : T (MSeqA M B)),
+    viewR md dflt t = Some (t', x0) ->
+    xD `is_approx` x0 ->
+    tD `is_approx` t' ->
+    Tick.val (viewRD_f dflt t xD tD) `is_approx` t.
+Proof.
+  apply (MSeq_ind_poly (M := M)
+    (fun A t =>
+       forall (B : Type) (LDB : LessDefined B)
+              (RLDB : Reflexive (less_defined (a := B))) (EAB : Exact A B)
+              (md : A -> M) (dflt : A) (x0 : A) (t' : MSeq M A)
+              (xD : T B) (tD : T (MSeqA M B)),
+         viewR md dflt t = Some (t', x0) ->
+         xD `is_approx` x0 ->
+         tD `is_approx` t' ->
+         Tick.val (viewRD_f dflt t xD tD) `is_approx` t)).
+  - intros A B LDB RLDB EAB md dflt x0 t' xD tD Hv Hx Ht.
+    discriminate Hv.
+  - intros A x B LDB RLDB EAB md dflt x0 t' xD tD Hv Hx Ht.
+    cbn in Hv. injection Hv as ? ?; subst.
+    cbn. repeat constructor. exact Hx.
+  - intros A vm pr m sf IH B LDB RLDB EAB md dflt x0 t' xD tD Hv Hx Ht.
+    destruct sf as [a|a b|a b c].
+    + (* One: the cascade *)
+      cbn in Hv. cbn.
+      destruct (viewR measureMTuple (MPair mzero dflt dflt) m)
+        as [ [m'' t1]|] eqn:Hv2.
+      * injection Hv as ? ?; subst.
+        destruct (borrowDmdR m'' t1 tD) as [ [prD m'D] t1D] eqn:Hb.
+        pose proof (borrowDmdR_approx Hb Ht)
+          as (Hpr & Hm' & Ht1).
+        cbn. repeat constructor; [ exact Hpr | | exact Hx ].
+        eapply (IH (MTupleA M B) _ _ _
+                  measureMTuple (MPair mzero dflt dflt) t1 m'');
+          eassumption.
+      * apply viewR_None in Hv2. subst m.
+        injection Hv as ? ?; subst.
+        cbn. repeat constructor; [ | exact Hx ].
+        apply toTreeDmd_approx with (md := md). exact Ht.
+    + (* Two *)
+      cbn in Hv. injection Hv as ? ?; subst.
+      destruct tD as [st|].
+      * apply TThunkThunk_inv in Ht.
+        invert_clear Ht as [ | | vm0 prD prE mD0 mE sfD sfE Hpr Hm Hsf ].
+        destruct sfD as [dd|];
+          [ apply TThunkThunk_inv in Hsf; invert_clear Hsf | ];
+          cbn; repeat constructor;
+          first [ exact Hx
+                | apply addSkel_approx; assumption
+                | assumption ].
+      * cbn. repeat constructor. exact Hx.
+    + (* Three *)
+      cbn in Hv. injection Hv as ? ?; subst.
+      destruct tD as [st|].
+      * apply TThunkThunk_inv in Ht.
+        invert_clear Ht as [ | | vm0 prD prE mD0 mE sfD sfE Hpr Hm Hsf ].
+        destruct sfD as [dd|];
+          [ apply TThunkThunk_inv in Hsf; invert_clear Hsf | ];
+          cbn; repeat constructor;
+          first [ exact Hx
+                | apply addSkel_approx; assumption
+                | assumption ].
+      * cbn. repeat constructor. exact Hx.
+Qed.
+
+(** Unbundling lemmas for the reconstruction demands: only the facts the
+    main induction consumes (the middle demand, and for [deepLD_f] the
+    slot demands on the residual elements). *)
+Lemma deepLD_f_approx {M} {A B} `{Monoid M}
+    `{LDB : LessDefined B, !Reflexive LDB, Exact A B}
+    (md : A -> M) (dflt : A) (r : list A) (m : MSeq M (MTuple M A))
+    (sf : Digit A) (outD : T (MSeqA M B))
+    (rEl : list (T B)) (mD : T (MSeqA M (MTupleA M B))) (sfD : T (DigitA B)) :
+  Tick.val (deepLD_f dflt r m sf outD) = (rEl, mD, sfD) ->
+  outD `is_approx` deepL md dflt r m sf ->
+  (forall k, nth k rEl Undefined `less_defined` exact (nth k r dflt))
+  /\ mD `less_defined` exact m.
+Proof.
+  intros Hval Ho.
+  destruct outD as [out|]; cbn in Hval.
+  - destruct r as [|x [|y [|z [|w ws] ] ] ].
+    + (* empty residual *)
+      cbn in Ho.
+      destruct (viewL measureMTuple (MPair mzero dflt dflt) m)
+        as [ [t1 m']|] eqn:Hv.
+      * apply TThunkThunk_inv in Ho.
+        invert_clear Ho as [ | | vm0 prD prE mD0 mE sfD0 sfE Hpr Hm Hsf ].
+        cbn in Hval. injection Hval as ? ? ?; subst.
+        split; [ intro k; destruct k; cbn; constructor | ].
+        eapply viewLD_f_approx;
+          [ typeclasses eauto
+          | exact Hv
+          | apply tupleDmdOfDigitDmd_approx; exact Hpr
+          | apply addSkel_approx; exact Hm ].
+      * apply viewL_None in Hv. subst m.
+        cbn in Hval. injection Hval as ? ? ?; subst.
+        split; [ intro k; destruct k; cbn; constructor | ].
+        cbn. repeat constructor.
+    + (* [x] *)
+      apply TThunkThunk_inv in Ho.
+      invert_clear Ho as [ | | vm0 prD prE mD0 mE sfD0 sfE Hpr Hm Hsf ].
+      cbn in Hval. injection Hval as ? ? ?; subst.
+      split; [ | apply addSkel_approx; exact Hm ].
+      intro k.
+      destruct prD as [dd|];
+        [ apply TThunkThunk_inv in Hpr; invert_clear Hpr | ];
+        destruct k as [|k]; cbn; try constructor; try assumption;
+        destruct k; cbn; constructor.
+    + (* [x; y] *)
+      apply TThunkThunk_inv in Ho.
+      invert_clear Ho as [ | | vm0 prD prE mD0 mE sfD0 sfE Hpr Hm Hsf ].
+      destruct prD as [dd|];
+        [ apply TThunkThunk_inv in Hpr; invert_clear Hpr | ];
+        cbn in Hval; injection Hval as ? ? ?; subst;
+        (split; [ | apply addSkel_approx; exact Hm ]);
+        intro k;
+        destruct k as [|k]; cbn; try constructor; try assumption;
+        destruct k as [|k]; cbn; try constructor; try assumption;
+        destruct k; cbn; constructor.
+    + (* [x; y; z] *)
+      apply TThunkThunk_inv in Ho.
+      invert_clear Ho as [ | | vm0 prD prE mD0 mE sfD0 sfE Hpr Hm Hsf ].
+      destruct prD as [dd|];
+        [ apply TThunkThunk_inv in Hpr; invert_clear Hpr | ];
+        cbn in Hval; injection Hval as ? ? ?; subst;
+        (split; [ | apply addSkel_approx; exact Hm ]);
+        intro k;
+        destruct k as [|k]; cbn; try constructor; try assumption;
+        destruct k as [|k]; cbn; try constructor; try assumption;
+        destruct k as [|k]; cbn; try constructor; try assumption;
+        destruct k; cbn; constructor.
+    + (* |r| >= 4 *)
+      injection Hval as ? ? ?; subst.
+      split; [ intro k; destruct k; cbn; constructor | constructor ].
+  - injection Hval as ? ? ?; subst.
+    split; [ intro k; destruct k; cbn; constructor | constructor ].
+Qed.
+
+Lemma deepRD_f_approx {M} {A B} `{Monoid M}
+    `{LDB : LessDefined B, !Reflexive LDB, Exact A B}
+    (md : A -> M) (dflt : A) (pr : Digit A) (m : MSeq M (MTuple M A))
+    (l : list A) (outD : T (MSeqA M B))
+    (prD : T (DigitA B)) (mD : T (MSeqA M (MTupleA M B))) (lEl : list (T B)) :
+  Tick.val (deepRD_f dflt pr m l outD) = (prD, mD, lEl) ->
+  outD `is_approx` deepR md dflt pr m l ->
+  mD `less_defined` exact m.
+Proof.
+  intros Hval Ho.
+  destruct outD as [out|]; cbn in Hval.
+  - destruct l as [|x [|y [|z [|w ws] ] ] ].
+    + cbn in Ho.
+      destruct (viewR measureMTuple (MPair mzero dflt dflt) m)
+        as [ [m' t1]|] eqn:Hv.
+      * apply TThunkThunk_inv in Ho.
+        invert_clear Ho as [ | | vm0 prD0 prE mD0 mE sfD0 sfE Hpr Hm Hsf ].
+        cbn in Hval. injection Hval as ? ? ?; subst.
+        eapply viewRD_f_approx;
+          [ typeclasses eauto
+          | exact Hv
+          | apply tupleDmdOfDigitDmd_approx; exact Hsf
+          | apply addSkel_approx; exact Hm ].
+      * apply viewR_None in Hv. subst m.
+        cbn in Hval. injection Hval as ? ? ?; subst.
+        cbn. repeat constructor.
+    + apply TThunkThunk_inv in Ho.
+      invert_clear Ho as [ | | vm0 prD0 prE mD0 mE sfD0 sfE Hpr Hm Hsf ].
+      cbn in Hval. injection Hval as ? ? ?; subst.
+      apply addSkel_approx; exact Hm.
+    + apply TThunkThunk_inv in Ho.
+      invert_clear Ho as [ | | vm0 prD0 prE mD0 mE sfD0 sfE Hpr Hm Hsf ].
+      destruct sfD0 as [dd|];
+        [ apply TThunkThunk_inv in Hsf; invert_clear Hsf | ];
+        cbn in Hval; injection Hval as ? ? ?; subst;
+        apply addSkel_approx; exact Hm.
+    + apply TThunkThunk_inv in Ho.
+      invert_clear Ho as [ | | vm0 prD0 prE mD0 mE sfD0 sfE Hpr Hm Hsf ].
+      destruct sfD0 as [dd|];
+        [ apply TThunkThunk_inv in Hsf; invert_clear Hsf | ];
+        cbn in Hval; injection Hval as ? ? ?; subst;
+        apply addSkel_approx; exact Hm.
+    + injection Hval as ? ? ?; subst. constructor.
+  - injection Hval as ? ? ?; subst. constructor.
+Qed.
+
+(** The faithful pivot demand approximates the pivot tuple. *)
+Lemma pivotNodeDmd_f_approx {M} {A B} `{Monoid M}
+    `{LDB : LessDefined B, !Reflexive LDB, Exact A B}
+    (md : A -> M) (p : M -> bool) (b : M) (xs : MTuple M A)
+    (xD : T B) (rEl : list (T B)) (dflt : A)
+    (l1 : list A) (x1 : A) (r1 : list A) :
+  splitDigit md p b (tupleToDigit xs) = (l1, x1, r1) ->
+  xD `is_approx` x1 ->
+  (forall k, nth k rEl Undefined `less_defined` exact (nth k r1 dflt)) ->
+  pivotNodeDmd_f md p b xs xD rEl `less_defined` exact xs.
+Proof.
+  destruct xs as [c x y | c x y z];
+    unfold pivotNodeDmd_f, splitDigit, tupleToDigit;
+    [ destruct (p (b <+> md x)) eqn:Hp1
+    | destruct (p (b <+> md x)) eqn:Hp1;
+      [ | destruct (p (b <+> md x <+> md y)) eqn:Hp2 ] ];
+    intros Hsd Hx Hr; injection Hsd as ? ? ?; subst; cbn in Hx |- *.
+  - (* Pair, pivot = x, r1 = [y] *)
+    pose proof (Hr 0) as Hr0; cbn in Hr0.
+    repeat constructor; [ reflexivity | exact Hr0 ].
+  - (* Pair, pivot = y *)
+    repeat constructor; [ reflexivity | exact Hx ].
+  - (* Triple, pivot = x, r1 = [y; z] *)
+    pose proof (Hr 0) as Hr0; pose proof (Hr 1) as Hr1; cbn in Hr0, Hr1.
+    repeat constructor; [ reflexivity | exact Hr0 | exact Hr1 ].
+  - (* Triple, pivot = y, r1 = [z] *)
+    pose proof (Hr 0) as Hr0; cbn in Hr0.
+    repeat constructor; [ reflexivity | reflexivity | exact Hr0 ].
+  - (* Triple, pivot = z *)
+    repeat constructor; [ reflexivity | reflexivity | exact Hx ].
+Qed.
+
 (** Keep the helper calls folded from here on: their cost lemmas above
     are the only interface the main induction needs. *)
 Arguments viewLD_f : simpl never.
