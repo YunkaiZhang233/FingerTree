@@ -1414,5 +1414,778 @@ Proof.
 Qed.
 
 (* ================================================================= *)
+(** ** Section 9: The faithful split demand function (Item 4 / M9b)    *)
+(* ================================================================= *)
+
+(** The scaffold [splitTreeD] (Section 5) passes [(⊥, pivotDmd …, ⊥)] to
+    its recursive call: reconstruction below the top level is never
+    demanded, so its cost bound — while honest and [outD]-independent —
+    bounds a demand function that does not model the pure [splitTree]'s
+    per-level reconstruction (SPLIT_NOTE §7).  This section defines the
+    *faithful* demand function [splitTreeD_f] ALONGSIDE the scaffold
+    (coexist, don't replace — every Section 5–8 result is untouched):
+    the caller's demands on the two result halves are unbundled through
+    [deepLD_f]/[deepRD_f] (and, when a residual digit is empty, through
+    the cascades [viewLD_f]/[viewRD_f]) into genuine demands on the
+    recursive halves, threaded through the recursive call together with
+    the pivot demand.
+
+    Demand conventions (as established in Sections 5 and 8):
+    - computing [md x] of a leaf element demands [x] in full
+      ([Thunk (exact x)]); at spine levels the measure is the cached
+      [measureMTuple], which demands only the tuple's root constructor
+      (the measure field is strict) — the *skeleton* demands below;
+    - digits at spine nodes visited by the descent are demanded at
+      [exact] (the descent computes [vpr], measuring the front digit in
+      full; the rear digit is over-demanded for uniformity with the
+      scaffold);
+    - building [mdeep pr m sf] computes the cache [‖m‖], which reads
+      [m]'s root, its digit roots, and the cached measures of those
+      digits' tuples: the skeleton [mseqSkel m]. *)
+
+(** *** 9a. Skeleton demands (what a cache computation forces) *)
+
+Definition mtupleSkel {M A B} (t : MTuple M A) : MTupleA M B :=
+  match t with
+  | MPair c _ _     => MPairA c Undefined Undefined
+  | MTriple c _ _ _ => MTripleA c Undefined Undefined Undefined
+  end.
+
+Definition digitSkel {M A B} (d : Digit (MTuple M A)) : DigitA (MTupleA M B) :=
+  match d with
+  | One x       => OneA (Thunk (mtupleSkel x))
+  | Two x y     => TwoA (Thunk (mtupleSkel x)) (Thunk (mtupleSkel y))
+  | Three x y z =>
+      ThreeA (Thunk (mtupleSkel x)) (Thunk (mtupleSkel y)) (Thunk (mtupleSkel z))
+  end.
+
+Definition mseqSkel {M A B} (m : MSeq M (MTuple M A)) : MSeqA M (MTupleA M B) :=
+  match m with
+  | MNil             => MNilA
+  | MUnit x          => MUnitA (Thunk (mtupleSkel x))
+  | MMore vm pr _ sf => MMoreA vm (Thunk (digitSkel pr)) Undefined (Thunk (digitSkel sf))
+  end.
+
+(** Merge a skeleton into a caller demand.  The merge is shallow (root,
+    digit roots, tuple roots): a [Thunk] tuple demand already contains
+    its strict cache field, so nothing deeper is ever needed — this is
+    why no general [Lub] instance is required. *)
+
+Definition addTupleSkel {M A B} (x : MTuple M A) (xD : T (MTupleA M B))
+    : T (MTupleA M B) :=
+  match xD with
+  | Undefined => Thunk (mtupleSkel x)
+  | Thunk v   => Thunk v
+  end.
+
+Definition addDigitSkel {M A B} (d : Digit (MTuple M A))
+    (dD : T (DigitA (MTupleA M B))) : T (DigitA (MTupleA M B)) :=
+  match dD with
+  | Undefined => Thunk (digitSkel d)
+  | Thunk dd  =>
+      Thunk (match d, dd with
+             | One x, OneA xD => OneA (addTupleSkel x xD)
+             | Two x y, TwoA xD yD => TwoA (addTupleSkel x xD) (addTupleSkel y yD)
+             | Three x y z, ThreeA xD yD zD =>
+                 ThreeA (addTupleSkel x xD) (addTupleSkel y yD) (addTupleSkel z zD)
+             | _, _ => dd                      (* shape mismatch: unreachable *)
+             end)
+  end.
+
+Definition addSkel {M A B} (m : MSeq M (MTuple M A))
+    (mD : T (MSeqA M (MTupleA M B))) : T (MSeqA M (MTupleA M B)) :=
+  match mD with
+  | Undefined => Thunk (mseqSkel m)
+  | Thunk s   =>
+      Thunk (match m, s with
+             | MUnit x, MUnitA xD => MUnitA (addTupleSkel x xD)
+             | MMore _ pr _ sf, MMoreA vm prD mD' sfD =>
+                 MMoreA vm (addDigitSkel pr prD) mD' (addDigitSkel sf sfD)
+             | _, _ => s                       (* shape mismatch: unreachable *)
+             end)
+  end.
+
+(** *** 9b. Demand reassembly (output shapes back onto input shapes) *)
+
+(** Demand on a borrowed tuple from the demand on the digit its contents
+    became ([tupleToDigit t1] as the near digit of an [mdeep]-built
+    node).  [tupleToDigit] forces the tuple's root, so the demand is at
+    least the skeleton even when the digit demand is [⊥]. *)
+Definition tupleDmdOfDigitDmd {M A B} (t1 : MTuple M A) (dD : T (DigitA B))
+    : T (MTupleA M B) :=
+  match t1, dD with
+  | MPair c _ _,     Thunk (TwoA aD bD)      => Thunk (MPairA c aD bD)
+  | MTriple c _ _ _, Thunk (ThreeA aD bD cD) => Thunk (MTripleA c aD bD cD)
+  | _, _ => Thunk (mtupleSkel t1)
+  end.
+
+(** Demand on a digit [d] from the demand on [toTree md (digitToList d)]
+    (the empty-middle rebuild of [deepL]/[deepR]).  [toTree]'s nodes
+    have [MNil] middles, so their caches force nothing; only the element
+    slots carry demand. *)
+Definition toTreeDmd {M A B} (d : Digit A) (tD : T (MSeqA M B)) : T (DigitA B) :=
+  match d, tD with
+  | _, Undefined => Undefined
+  | One _,   Thunk (MUnitA aD) => Thunk (OneA aD)
+  | Two _ _, Thunk (MMoreA _ prD _ sfD) =>
+      Thunk (TwoA (match prD with Thunk (OneA aD) => aD | _ => Undefined end)
+                  (match sfD with Thunk (OneA bD) => bD | _ => Undefined end))
+  | Three _ _ _, Thunk (MMoreA _ prD _ sfD) =>
+      Thunk (ThreeA (match prD with Thunk (TwoA aD _) => aD | _ => Undefined end)
+                    (match prD with Thunk (TwoA _ bD) => bD | _ => Undefined end)
+                    (match sfD with Thunk (OneA cD) => cD | _ => Undefined end))
+  | _, _ => Undefined                          (* shape mismatch: unreachable *)
+  end.
+
+(** Unbundle a demand on the borrow-built node
+    [mdeep md (tupleToDigit t1) m' sf] (the empty-residual case of
+    [deepL]) into demands on the borrowed tuple [t1], the remaining
+    middle [m'] (which the node's cache forces to its skeleton), and the
+    suffix [sf].  [borrowDmdR] is the mirrored unbundling for
+    [mdeep md pr m' (tupleToDigit t1)]. *)
+Definition borrowDmdL {M A B} (t1 : MTuple M A) (m' : MSeq M (MTuple M A))
+    (outD : T (MSeqA M B))
+    : T (MTupleA M B) * T (MSeqA M (MTupleA M B)) * T (DigitA B) :=
+  match outD with
+  | Thunk (MMoreA _ prD mD sfD) =>
+      (tupleDmdOfDigitDmd t1 prD, addSkel m' mD, sfD)
+  | Thunk _ =>                                 (* shape mismatch: unreachable *)
+      (Thunk (mtupleSkel t1), Thunk (mseqSkel m'), Undefined)
+  | Undefined => (Undefined, Undefined, Undefined)
+  end.
+
+Definition borrowDmdR {M A B} (m' : MSeq M (MTuple M A)) (t1 : MTuple M A)
+    (outD : T (MSeqA M B))
+    : T (DigitA B) * T (MSeqA M (MTupleA M B)) * T (MTupleA M B) :=
+  match outD with
+  | Thunk (MMoreA _ prD mD sfD) =>
+      (prD, addSkel m' mD, tupleDmdOfDigitDmd t1 sfD)
+  | Thunk _ =>                                 (* shape mismatch: unreachable *)
+      (Undefined, Thunk (mseqSkel m'), Thunk (mtupleSkel t1))
+  | Undefined => (Undefined, Undefined, Undefined)
+  end.
+
+(** *** 9c. The faithful view demands (the cascades)
+
+    [viewLD_f dflt t xD tD]: demand of one [viewL] step — [xD] the
+    demand on the uncons'd element, [tD] the demand on the remaining
+    tree; returns the demand on the input tree.  One [Tick.tick] per
+    visited node, recursing into the middle on a [One] front, so the
+    cost is governed by [lvc] exactly as the scaffold [viewLD]'s.  The
+    non-[One] fronts rebuild in place via [mdeep], whose cache forces
+    the skeleton of the (unchanged) middle whenever the rebuilt node
+    itself is demanded. *)
+Fixpoint viewLD_f {M} {A B} `{Monoid M} (dflt : A)
+    (t : MSeq M A) (xD : T B) (tD : T (MSeqA M B)) {struct t}
+    : Tick (T (MSeqA M B)) :=
+  let+ _ := Tick.tick in
+  match t with
+  | MNil    => Tick.ret (Thunk MNilA)
+  | MUnit _ => Tick.ret (Thunk (MUnitA xD))
+  | MMore vm pr m sf =>
+      match pr with
+      | Two _ _ =>
+          match tD with
+          | Thunk (MMoreA _ prD mD sfD) =>
+              let yD := match prD with Thunk (OneA yD) => yD | _ => Undefined end in
+              Tick.ret (Thunk (MMoreA vm (Thunk (TwoA xD yD)) (addSkel m mD) sfD))
+          | _ =>
+              Tick.ret (Thunk (MMoreA vm (Thunk (TwoA xD Undefined))
+                                       Undefined Undefined))
+          end
+      | Three _ _ _ =>
+          match tD with
+          | Thunk (MMoreA _ prD mD sfD) =>
+              let '(yD, zD) := match prD with
+                               | Thunk (TwoA yD zD) => (yD, zD)
+                               | _ => (Undefined, Undefined)
+                               end in
+              Tick.ret (Thunk (MMoreA vm (Thunk (ThreeA xD yD zD)) (addSkel m mD) sfD))
+          | _ =>
+              Tick.ret (Thunk (MMoreA vm (Thunk (ThreeA xD Undefined Undefined))
+                                       Undefined Undefined))
+          end
+      | One _ =>
+          match viewL measureMTuple (MPair mzero dflt dflt) m with
+          | None =>
+              (* m = MNil: the rest is [toTree md (digitToList sf)] *)
+              let+ mD := viewLD_f (B := MTupleA M B)
+                           (MPair mzero dflt dflt) m Undefined Undefined in
+              Tick.ret (Thunk (MMoreA vm (Thunk (OneA xD)) mD (toTreeDmd sf tD)))
+          | Some (t1, m') =>
+              let '(t1D, m'D, sfD) := borrowDmdL t1 m' tD in
+              let+ mD := viewLD_f (MPair mzero dflt dflt) m t1D m'D in
+              Tick.ret (Thunk (MMoreA vm (Thunk (OneA xD)) mD sfD))
+          end
+      end
+  end.
+
+Fixpoint viewRD_f {M} {A B} `{Monoid M} (dflt : A)
+    (t : MSeq M A) (xD : T B) (tD : T (MSeqA M B)) {struct t}
+    : Tick (T (MSeqA M B)) :=
+  let+ _ := Tick.tick in
+  match t with
+  | MNil    => Tick.ret (Thunk MNilA)
+  | MUnit _ => Tick.ret (Thunk (MUnitA xD))
+  | MMore vm pr m sf =>
+      match sf with
+      | Two _ _ =>
+          (* viewR _ = Some (mdeep md pr m (One x), y) *)
+          match tD with
+          | Thunk (MMoreA _ prD mD sfD) =>
+              let xD0 := match sfD with Thunk (OneA xD0) => xD0 | _ => Undefined end in
+              Tick.ret (Thunk (MMoreA vm prD (addSkel m mD) (Thunk (TwoA xD0 xD))))
+          | _ =>
+              Tick.ret (Thunk (MMoreA vm Undefined Undefined
+                                       (Thunk (TwoA Undefined xD))))
+          end
+      | Three _ _ _ =>
+          (* viewR _ = Some (mdeep md pr m (Two x y), z) *)
+          match tD with
+          | Thunk (MMoreA _ prD mD sfD) =>
+              let '(xD0, yD0) := match sfD with
+                                 | Thunk (TwoA xD0 yD0) => (xD0, yD0)
+                                 | _ => (Undefined, Undefined)
+                                 end in
+              Tick.ret (Thunk (MMoreA vm prD (addSkel m mD)
+                                       (Thunk (ThreeA xD0 yD0 xD))))
+          | _ =>
+              Tick.ret (Thunk (MMoreA vm Undefined Undefined
+                                       (Thunk (ThreeA Undefined Undefined xD))))
+          end
+      | One _ =>
+          match viewR measureMTuple (MPair mzero dflt dflt) m with
+          | None =>
+              let+ mD := viewRD_f (B := MTupleA M B)
+                           (MPair mzero dflt dflt) m Undefined Undefined in
+              Tick.ret (Thunk (MMoreA vm (toTreeDmd pr tD) mD (Thunk (OneA xD))))
+          | Some (m', t1) =>
+              let '(prD, m'D, t1D) := borrowDmdR m' t1 tD in
+              let+ mD := viewRD_f (MPair mzero dflt dflt) m t1D m'D in
+              Tick.ret (Thunk (MMoreA vm prD mD (Thunk (OneA xD))))
+          end
+      end
+  end.
+
+(** *** 9d. The faithful reconstruction demands
+
+    [deepLD_f dflt r m sf outD]: unbundle the demand on
+    [deepL md dflt r m sf] into demands on the residual elements [r],
+    the middle [m], and the suffix [sf].  Cost 0 when [outD = ⊥] (the
+    half was not demanded) or when the residual refills the near digit
+    directly; one [viewLD_f] cascade when the residual is empty. *)
+Definition deepLD_f {M} {A B} `{Monoid M} (dflt : A)
+    (r : list A) (m : MSeq M (MTuple M A)) (sf : Digit A) (outD : T (MSeqA M B))
+    : Tick (list (T B) * T (MSeqA M (MTupleA M B)) * T (DigitA B)) :=
+  match outD with
+  | Undefined => Tick.ret ([], Undefined, Undefined)
+  | Thunk out =>
+      match r with
+      | [x] =>
+          match out with
+          | MMoreA _ prD mD sfD =>
+              let xD := match prD with Thunk (OneA xD) => xD | _ => Undefined end in
+              Tick.ret ([xD], addSkel m mD, sfD)
+          | _ => Tick.ret ([Undefined], Thunk (mseqSkel m), Undefined)
+          end
+      | [x; y] =>
+          match out with
+          | MMoreA _ prD mD sfD =>
+              let '(xD, yD) := match prD with
+                               | Thunk (TwoA xD yD) => (xD, yD)
+                               | _ => (Undefined, Undefined)
+                               end in
+              Tick.ret ([xD; yD], addSkel m mD, sfD)
+          | _ => Tick.ret ([Undefined; Undefined], Thunk (mseqSkel m), Undefined)
+          end
+      | [x; y; z] =>
+          match out with
+          | MMoreA _ prD mD sfD =>
+              let '(xD, yD, zD) := match prD with
+                                   | Thunk (ThreeA xD yD zD) => (xD, yD, zD)
+                                   | _ => (Undefined, Undefined, Undefined)
+                                   end in
+              Tick.ret ([xD; yD; zD], addSkel m mD, sfD)
+          | _ => Tick.ret ([Undefined; Undefined; Undefined],
+                           Thunk (mseqSkel m), Undefined)
+          end
+      | [] =>
+          match viewL measureMTuple (MPair mzero dflt dflt) m with
+          | None =>
+              let+ mD := viewLD_f (B := MTupleA M B)
+                           (MPair mzero dflt dflt) m Undefined Undefined in
+              Tick.ret ([], mD, toTreeDmd sf outD)
+          | Some (t1, m') =>
+              let '(t1D, m'D, sfD) := borrowDmdL t1 m' outD in
+              let+ mD := viewLD_f (MPair mzero dflt dflt) m t1D m'D in
+              Tick.ret ([], mD, sfD)
+          end
+      | _ => Tick.ret ([], Undefined, Undefined) (* |r| ≥ 4: deepL = MNil *)
+      end
+  end.
+
+Definition deepRD_f {M} {A B} `{Monoid M} (dflt : A)
+    (pr : Digit A) (m : MSeq M (MTuple M A)) (l : list A) (outD : T (MSeqA M B))
+    : Tick (T (DigitA B) * T (MSeqA M (MTupleA M B)) * list (T B)) :=
+  match outD with
+  | Undefined => Tick.ret (Undefined, Undefined, [])
+  | Thunk out =>
+      match l with
+      | [x] =>
+          match out with
+          | MMoreA _ prD mD sfD =>
+              let xD := match sfD with Thunk (OneA xD) => xD | _ => Undefined end in
+              Tick.ret (prD, addSkel m mD, [xD])
+          | _ => Tick.ret (Undefined, Thunk (mseqSkel m), [Undefined])
+          end
+      | [x; y] =>
+          match out with
+          | MMoreA _ prD mD sfD =>
+              let '(xD, yD) := match sfD with
+                               | Thunk (TwoA xD yD) => (xD, yD)
+                               | _ => (Undefined, Undefined)
+                               end in
+              Tick.ret (prD, addSkel m mD, [xD; yD])
+          | _ => Tick.ret (Undefined, Thunk (mseqSkel m), [Undefined; Undefined])
+          end
+      | [x; y; z] =>
+          match out with
+          | MMoreA _ prD mD sfD =>
+              let '(xD, yD, zD) := match sfD with
+                                   | Thunk (ThreeA xD yD zD) => (xD, yD, zD)
+                                   | _ => (Undefined, Undefined, Undefined)
+                                   end in
+              Tick.ret (prD, addSkel m mD, [xD; yD; zD])
+          | _ => Tick.ret (Undefined, Thunk (mseqSkel m),
+                           [Undefined; Undefined; Undefined])
+          end
+      | [] =>
+          match viewR measureMTuple (MPair mzero dflt dflt) m with
+          | None =>
+              let+ mD := viewRD_f (B := MTupleA M B)
+                           (MPair mzero dflt dflt) m Undefined Undefined in
+              Tick.ret (toTreeDmd pr outD, mD, [])
+          | Some (m', t1) =>
+              let '(prD, m'D, t1D) := borrowDmdR m' t1 outD in
+              let+ mD := viewRD_f (MPair mzero dflt dflt) m t1D m'D in
+              Tick.ret (prD, mD, [])
+          end
+      | _ => Tick.ret (Undefined, Undefined, []) (* |l| ≥ 4: deepR = MNil *)
+      end
+  end.
+
+(** *** 9e. The faithful pivot demand and [splitTreeD_f]
+
+    [pivotNodeDmd_f] is [pivotNodeDmd] (Section 5) with the slots
+    *beyond* the pivot — the elements that become the near digit of the
+    right half — carrying the demands unbundled from the right half
+    ([rEl], the first component of [deepLD_f]'s result) instead of [⊥].
+    The slots before the pivot stay [exact]: the scan measured them. *)
+Definition pivotNodeDmd_f {M} {A B} `{Monoid M} `{Exact A B} (md : A -> M)
+    (p : M -> bool) (b : M) (xs : MTuple M A) (xD : T B) (rEl : list (T B))
+    : MTupleA M B :=
+  let r0 := nth 0 rEl Undefined in
+  let r1 := nth 1 rEl Undefined in
+  match xs with
+  | MPair c x y =>
+      if p (b <+> md x)
+      then MPairA c (Thunk (exact x)) r0
+      else MPairA c (Thunk (exact x)) xD
+  | MTriple c x y z =>
+      if p (b <+> md x)
+      then MTripleA c (Thunk (exact x)) r0 r1
+      else if p (b <+> md x <+> md y)
+      then MTripleA c (Thunk (exact x)) (Thunk (exact y)) r0
+      else MTripleA c (Thunk (exact x)) (Thunk (exact y)) xD
+  end.
+Arguments pivotNodeDmd_f : simpl never.
+
+(** The faithful demand function.  Branch structure and per-level tick
+    follow the scaffold [splitTreeD]; the difference is entirely in the
+    value demands: the recursive call receives the unbundled half-demands
+    [(mlD, xsD, mrD)] instead of [(⊥, pivotDmd …, ⊥)], and the returned
+    middle demand is the recursive result instead of a constant.  Note
+    [mlD] always contains [mseqSkel ml]: locating the pivot inside the
+    borrowed tuple computes [vpr <+> ‖ml‖] — the chain that makes the
+    pivot-projection non-demand-isolated (Section 2b) — and here it is
+    finally accounted for. *)
+Fixpoint splitTreeD_f {M} {A B} `{Monoid M} `{Exact A B} (md : A -> M) (dflt : A)
+    (p : M -> bool) (i : M) (t : MSeq M A) (outD : SplitDmd M B) {struct t}
+    : Tick (T (MSeqA M B)) :=
+  let+ _ := Tick.tick in
+  match t with
+  | MNil    => Tick.ret Undefined
+  | MUnit x => let '(_, xD, _) := outD in Tick.ret (Thunk (MUnitA xD))
+  | MMore vm pr m sf =>
+      let '(lD, xD, rD) := outD in
+      let vpr  := i <+> measureDigit md pr in
+      let vm_t := vpr <+> vm in
+      if p vpr then
+        let '(_, _, r) := splitDigit md p i pr in
+        let+ _  := toTreeD lD in
+        let+ dl := deepLD_f dflt r m sf rD in
+        let '(_, mD, _) := dl in
+        Tick.ret (Thunk (MMoreA vm (exact pr) mD (exact sf)))
+      else if p vm_t then
+        let '(ml, xs, mr) :=
+          splitTree measureMTuple (MPair mzero dflt dflt) p vpr m in
+        let b := vpr <+> measureSeq measureMTuple ml in
+        let '(l, _, r) := splitDigit md p b (tupleToDigit xs) in
+        let+ dr := deepRD_f dflt pr ml l lD in
+        let '(_, mlD0, _) := dr in
+        let+ dl := deepLD_f dflt r mr sf rD in
+        let '(rEl, mrD, _) := dl in
+        let xsD := Thunk (pivotNodeDmd_f md p b xs xD rEl) in
+        let mlD := addSkel ml mlD0 in
+        let+ mD := splitTreeD_f (A := MTuple M A) (B := MTupleA M B)
+                     measureMTuple (MPair mzero dflt dflt) p vpr m
+                     (mlD, xsD, mrD) in
+        Tick.ret (Thunk (MMoreA vm (exact pr) mD (exact sf)))
+      else
+        let '(l, _, _) := splitDigit md p vm_t sf in
+        let+ dr := deepRD_f dflt pr m l lD in
+        let '(_, mD, _) := dr in
+        let+ _  := toTreeD rD in
+        Tick.ret (Thunk (MMoreA vm (exact pr) mD (exact sf)))
+  end.
+
+(* ================================================================= *)
+(** ** Section 10: Faithful split cost — the §C.2 telescoping (M7)      *)
+(* ================================================================= *)
+
+(** The naive per-level accounting gives O(depth²): each level may pay a
+    [viewRD_f] cascade on its left half and a [viewLD_f] cascade on its
+    right half, each up to [depth] ticks.  The pen-and-paper argument
+    (thesis §C.2) telescopes: [deepL]/[deepR] always refill the near
+    digit to size ≥ 2 unless the residual was a single element, so the
+    view chains of successive levels are disjoint.  Mechanised the same
+    way Theorem 5.7 absorbs the cascade: bake the chain potential
+    [rvc l + lvc r] of the *result halves* into the induction
+    hypothesis.  The per-level facts are [deepLD_f_cost_lvc] /
+    [deepRD_f_cost_rvc]: reconstruction cost plus the result's chain
+    potential is bounded by the input chain potential plus a constant —
+    the credit the IH supplies at the recursive level is exactly what
+    the cascade at this level spends. *)
+
+Definition split_f_c1 : nat := 5.
+Definition split_f_c2 : nat := 3.
+
+(** *** Cascade cost (same statement as the scaffold's [viewLD_cost]). *)
+
+Lemma viewLD_f_cost {M} `{Monoid M} :
+  forall (A B : Type) (dflt : A) (t : MSeq M A) (xD : T B) (tD : T (MSeqA M B)),
+    Tick.cost (viewLD_f dflt t xD tD) <= lvc t.
+Proof.
+  fix SELF 4.
+  intros A B dflt t xD tD.
+  destruct t as [|x|vm pr m sf].
+  - simpl; lia.
+  - simpl; lia.
+  - destruct pr as [a|a b|a b c].
+    + simpl.
+      destruct (viewL measureMTuple (MPair mzero dflt dflt) m)
+        as [ [t1 m']|] eqn:Hv.
+      * destruct (borrowDmdL t1 m' tD) as [ [t1D m'D] sfD].
+        specialize (SELF (MTuple M A) (MTupleA M B) (MPair mzero dflt dflt)
+                      m t1D m'D).
+        simpl Tick.cost; lia.
+      * specialize (SELF (MTuple M A) (MTupleA M B) (MPair mzero dflt dflt)
+                      m Undefined Undefined).
+        simpl Tick.cost; lia.
+    + destruct tD as [s|]; [destruct s as [|xT|vm' prD mD sfD]|]; simpl; lia.
+    + destruct tD as [s|]; [destruct s as [|xT|vm' prD mD sfD]|]; simpl; try lia.
+      destruct prD as [d|]; [destruct d|]; simpl; lia.
+Qed.
+
+Lemma viewRD_f_cost {M} `{Monoid M} :
+  forall (A B : Type) (dflt : A) (t : MSeq M A) (xD : T B) (tD : T (MSeqA M B)),
+    Tick.cost (viewRD_f dflt t xD tD) <= rvc t.
+Proof.
+  fix SELF 4.
+  intros A B dflt t xD tD.
+  destruct t as [|x|vm pr m sf].
+  - simpl; lia.
+  - simpl; lia.
+  - destruct sf as [a|a b|a b c].
+    + simpl.
+      destruct (viewR measureMTuple (MPair mzero dflt dflt) m)
+        as [ [m' t1]|] eqn:Hv.
+      * destruct (borrowDmdR m' t1 tD) as [ [prD m'D] t1D].
+        specialize (SELF (MTuple M A) (MTupleA M B) (MPair mzero dflt dflt)
+                      m t1D m'D).
+        simpl Tick.cost; lia.
+      * specialize (SELF (MTuple M A) (MTupleA M B) (MPair mzero dflt dflt)
+                      m Undefined Undefined).
+        simpl Tick.cost; lia.
+    + destruct tD as [s|]; [destruct s as [|xT|vm' prD mD sfD]|]; simpl; lia.
+    + destruct tD as [s|]; [destruct s as [|xT|vm' prD mD sfD]|]; simpl; try lia.
+      destruct sfD as [d|]; [destruct d|]; simpl; lia.
+Qed.
+
+(** *** Pure chain-potential facts. *)
+
+Lemma lvc_pos {M A} (s : MSeq M A) : 1 <= lvc s.
+Proof.
+  destruct s as [|?|? pr ? ?]; [simpl;lia|simpl;lia|destruct pr; simpl; lia].
+Qed.
+
+Lemma rvc_pos {M A} (s : MSeq M A) : 1 <= rvc s.
+Proof.
+  destruct s as [|?|? ? ? sf]; [simpl;lia|simpl;lia|destruct sf; simpl; lia].
+Qed.
+
+Lemma lvc_toTree {M A} `{Monoid M} (md : A -> M) (xs : list A) :
+  lvc (toTree md xs) <= 2.
+Proof.
+  destruct xs as [|x [|y [|z [|w ws] ] ] ]; simpl; lia.
+Qed.
+
+Lemma rvc_toTree {M A} `{Monoid M} (md : A -> M) (xs : list A) :
+  rvc (toTree md xs) <= 2.
+Proof.
+  destruct xs as [|x [|y [|z [|w ws] ] ] ]; simpl; lia.
+Qed.
+
+(** [viewL]/[viewR] return [None] only on the empty tree. *)
+
+Lemma viewL_None {M A} `{Monoid M} (md : A -> M) (dflt : A) (t : MSeq M A) :
+  viewL md dflt t = None -> t = MNil.
+Proof.
+  destruct t as [|x|vm pr m sf]; simpl; intro Hv.
+  - reflexivity.
+  - discriminate Hv.
+  - destruct pr as [a|a b|a b c];
+      [ destruct (viewL measureMTuple (MPair mzero dflt dflt) m)
+          as [ [t1 m']|] | | ]; discriminate Hv.
+Qed.
+
+Lemma viewR_None {M A} `{Monoid M} (md : A -> M) (dflt : A) (t : MSeq M A) :
+  viewR md dflt t = None -> t = MNil.
+Proof.
+  destruct t as [|x|vm pr m sf]; simpl; intro Hv.
+  - reflexivity.
+  - discriminate Hv.
+  - destruct sf as [a|a b|a b c];
+      [ destruct (viewR measureMTuple (MPair mzero dflt dflt) m)
+          as [ [m' t1]|] | | ]; discriminate Hv.
+Qed.
+
+(** *** The per-level telescoping facts: reconstruction cost plus the
+    rebuilt half's chain potential is bounded by the original middle's
+    chain potential plus 2.  The three residual shapes are §C.2's
+    E/O/M types: empty (pay the cascade, the refilled digit has size
+    ≥ 2 so the result chain resets); one element (pay nothing, the
+    chain grows by 1 — the credit carries); two or three elements (pay
+    nothing, the chain resets). *)
+
+Lemma deepLD_f_cost_lvc {M} {A B} `{Monoid M} (md : A -> M) (dflt : A)
+    (r : list A) (m : MSeq M (MTuple M A)) (sf : Digit A)
+    (outD : T (MSeqA M B)) :
+  Tick.cost (deepLD_f dflt r m sf outD) + lvc (deepL md dflt r m sf)
+    <= lvc m + 2.
+Proof.
+  unfold deepLD_f, deepL.
+  destruct outD as [out|].
+  - destruct r as [|x [|y [|z [|w ws] ] ] ].
+    + (* empty residual: the cascade *)
+      destruct (viewL measureMTuple (MPair mzero dflt dflt) m)
+        as [ [t1 m']|] eqn:Hv.
+      * destruct (borrowDmdL t1 m' (Thunk out)) as [ [t1D m'D] sfD].
+        pose proof (viewLD_f_cost (MPair mzero dflt dflt) m t1D m'D) as Hc.
+        destruct t1; simpl Tick.cost; simpl lvc; lia.
+      * (* viewL = None ⇒ m = MNil *)
+        apply viewL_None in Hv. subst m.
+        pose proof (lvc_toTree md (digitToList sf)) as Ht.
+        simpl; lia.
+    + destruct out; simpl; pose proof (lvc_pos m); lia.
+    + destruct out as [|xT|vm' prD mD sfD]; simpl;
+        try (pose proof (lvc_pos m); lia).
+      destruct prD as [d|]; [destruct d|]; simpl;
+        pose proof (lvc_pos m); lia.
+    + destruct out as [|xT|vm' prD mD sfD]; simpl;
+        try (pose proof (lvc_pos m); lia).
+      destruct prD as [d|]; [destruct d|]; simpl;
+        pose proof (lvc_pos m); lia.
+    + simpl; pose proof (lvc_pos m); lia.
+  - destruct r as [|x [|y [|z [|w ws] ] ] ].
+    + destruct (viewL measureMTuple (MPair mzero dflt dflt) m)
+        as [ [t1 m']|] eqn:Hv.
+      * destruct t1; simpl; pose proof (lvc_pos m); lia.
+      * apply viewL_None in Hv. subst m.
+        pose proof (lvc_toTree md (digitToList sf)) as Ht. simpl; lia.
+    + simpl; pose proof (lvc_pos m); lia.
+    + simpl; pose proof (lvc_pos m); lia.
+    + simpl; pose proof (lvc_pos m); lia.
+    + simpl; pose proof (lvc_pos m); lia.
+Qed.
+
+Lemma deepRD_f_cost_rvc {M} {A B} `{Monoid M} (md : A -> M) (dflt : A)
+    (pr : Digit A) (m : MSeq M (MTuple M A)) (l : list A)
+    (outD : T (MSeqA M B)) :
+  Tick.cost (deepRD_f dflt pr m l outD) + rvc (deepR md dflt pr m l)
+    <= rvc m + 2.
+Proof.
+  unfold deepRD_f, deepR.
+  destruct outD as [out|].
+  - destruct l as [|x [|y [|z [|w ws] ] ] ].
+    + destruct (viewR measureMTuple (MPair mzero dflt dflt) m)
+        as [ [m' t1]|] eqn:Hv.
+      * destruct (borrowDmdR m' t1 (Thunk out)) as [ [prD m'D] t1D].
+        pose proof (viewRD_f_cost (MPair mzero dflt dflt) m t1D m'D) as Hc.
+        destruct t1; simpl Tick.cost; simpl rvc; lia.
+      * apply viewR_None in Hv. subst m.
+        pose proof (rvc_toTree md (digitToList pr)) as Ht.
+        simpl; lia.
+    + destruct out; simpl; pose proof (rvc_pos m); lia.
+    + destruct out as [|xT|vm' prD mD sfD]; simpl;
+        try (pose proof (rvc_pos m); lia).
+      destruct sfD as [d|]; [destruct d|]; simpl;
+        pose proof (rvc_pos m); lia.
+    + destruct out as [|xT|vm' prD mD sfD]; simpl;
+        try (pose proof (rvc_pos m); lia).
+      destruct sfD as [d|]; [destruct d|]; simpl;
+        pose proof (rvc_pos m); lia.
+    + simpl; pose proof (rvc_pos m); lia.
+  - destruct l as [|x [|y [|z [|w ws] ] ] ].
+    + destruct (viewR measureMTuple (MPair mzero dflt dflt) m)
+        as [ [m' t1]|] eqn:Hv.
+      * destruct t1; simpl; pose proof (rvc_pos m); lia.
+      * apply viewR_None in Hv. subst m.
+        pose proof (rvc_toTree md (digitToList pr)) as Ht. simpl; lia.
+    + simpl; pose proof (rvc_pos m); lia.
+    + simpl; pose proof (rvc_pos m); lia.
+    + simpl; pose proof (rvc_pos m); lia.
+    + simpl; pose proof (rvc_pos m); lia.
+Qed.
+
+(** Keep the helper calls folded from here on: their cost lemmas above
+    are the only interface the main induction needs. *)
+Arguments viewLD_f : simpl never.
+Arguments viewRD_f : simpl never.
+Arguments deepLD_f : simpl never.
+Arguments deepRD_f : simpl never.
+
+(** Keep the pure helpers folded too: the main induction reasons about
+    them only through the lemmas above and the [eqn:] equations. *)
+Arguments splitDigit : simpl never.
+Arguments deepL : simpl never.
+Arguments deepR : simpl never.
+Arguments toTree : simpl never.
+Arguments viewL : simpl never.
+Arguments viewR : simpl never.
+Arguments measureDigit : simpl never.
+Arguments measureSeq : simpl never.
+
+(** *** M7+M9b — the telescoping bound.  The IH carries the chain
+    potential of the pure result halves; at each level the
+    [deepLD_f]/[deepRD_f] facts trade the credit supplied by the
+    recursive call ([rvc ml + lvc mr]) for this level's cascade cost
+    plus the credit owed upward ([rvc l + lvc r]). *)
+Theorem splitTreeD_f_cost_pot {M} `{Monoid M} :
+  forall (A B : Type) (EAB : Exact A B) (md : A -> M) (dflt : A)
+         (p : M -> bool) (i : M) (t : MSeq M A) (outD : SplitDmd M B)
+         (l : MSeq M A) (x : A) (r : MSeq M A),
+    splitTree md dflt p i t = (l, x, r) ->
+    Tick.cost (splitTreeD_f md dflt p i t outD) + rvc l + lvc r
+    <= split_f_c1 * depth t + split_f_c2.
+Proof.
+  fix SELF 8.
+  intros A B EAB md dflt p i t outD l x r Hsp.
+  destruct t as [|x0|vm pr m sf].
+  - simpl in Hsp. injection Hsp as ? ? ?; subst.
+    destruct outD as [ [lD xD] rD]; simpl;
+      unfold split_f_c1, split_f_c2; lia.
+  - simpl in Hsp. injection Hsp as ? ? ?; subst.
+    destruct outD as [ [lD xD] rD]; simpl;
+      unfold split_f_c1, split_f_c2; lia.
+  - destruct outD as [ [lD xD] rD].
+    simpl in Hsp. simpl depth. simpl.
+    destruct (p (i <+> measureDigit md pr)) eqn:Hp1.
+    + (* branch 1: pivot in the front digit *)
+      destruct (splitDigit md p i pr) as [ [l1 x1] r1] eqn:Hsd.
+      injection Hsp as ? ? ?; subst.
+      pose proof (toTreeD_cost lD) as Ht.
+      pose proof (deepLD_f_cost_lvc (B := B) md dflt r1 m sf rD) as HdL.
+      pose proof (rvc_toTree md l1) as Hrt.
+      pose proof (lvc_le_depth m) as Hlm.
+      simpl Tick.cost.
+      destruct (Tick.val (deepLD_f (B := B) dflt r1 m sf rD))
+        as [ [rEl mD1] sfD1].
+      simpl Tick.cost.
+      unfold split_f_c1, split_f_c2; lia.
+    + destruct (p (i <+> measureDigit md pr <+> vm)) eqn:Hp2.
+      * (* branch 2: descend into the middle *)
+        destruct (splitTree measureMTuple (MPair mzero dflt dflt) p
+                    (i <+> measureDigit md pr) m)
+          as [ [ml xs] mr] eqn:Hst.
+        destruct (splitDigit md p
+                    (i <+> measureDigit md pr <+> measureSeq measureMTuple ml)
+                    (tupleToDigit xs))
+          as [ [l1 x1] r1] eqn:Hsd.
+        injection Hsp as ? ? ?; subst.
+        pose proof (deepRD_f_cost_rvc (B := B) md dflt pr ml l1 lD) as HdR.
+        pose proof (deepLD_f_cost_lvc (B := B) md dflt r1 mr sf rD) as HdL.
+        simpl Tick.cost.
+        destruct (Tick.val (deepRD_f (B := B) dflt pr ml l1 lD))
+          as [ [prD mlD0] lEl].
+        simpl Tick.cost.
+        destruct (Tick.val (deepLD_f (B := B) dflt r1 mr sf rD))
+          as [ [rEl mrD] sfD1].
+        simpl Tick.cost.
+        specialize (SELF (MTuple M A) (MTupleA M B) _
+                      measureMTuple (MPair mzero dflt dflt) p
+                      (i <+> measureDigit md pr) m
+                      (addSkel ml mlD0,
+                       Thunk (pivotNodeDmd_f md p
+                                (i <+> measureDigit md pr
+                                   <+> measureSeq measureMTuple ml)
+                                xs xD rEl),
+                       mrD)
+                      ml xs mr Hst).
+        unfold split_f_c1, split_f_c2 in *; lia.
+      * (* branch 3: pivot in the rear digit *)
+        destruct (splitDigit md p (i <+> measureDigit md pr <+> vm) sf)
+          as [ [l1 x1] r1] eqn:Hsd.
+        injection Hsp as ? ? ?; subst.
+        pose proof (deepRD_f_cost_rvc (B := B) md dflt pr m l1 lD) as HdR.
+        pose proof (toTreeD_cost rD) as Ht.
+        pose proof (lvc_toTree md r1) as Hlt.
+        pose proof (rvc_le_depth m) as Hrm.
+        simpl Tick.cost.
+        destruct (Tick.val (deepRD_f (B := B) dflt pr m l1 lD))
+          as [ [prD mD1] lEl].
+        simpl Tick.cost.
+        unfold split_f_c1, split_f_c2; lia.
+Qed.
+
+(** The headline cost bound: [outD]-independent (worst-case), now for
+    the FAITHFUL demand function. *)
+Theorem splitTreeD_f_cost {M} {A B} `{Monoid M} `{Exact A B}
+    (md : A -> M) (dflt : A) (p : M -> bool) (i : M)
+    (t : MSeq M A) (outD : SplitDmd M B) :
+  Tick.cost (splitTreeD_f md dflt p i t outD)
+    <= split_f_c1 * depth t + split_f_c2.
+Proof.
+  destruct (splitTree md dflt p i t) as [ [l x] r] eqn:Hsp.
+  pose proof (splitTreeD_f_cost_pot _ md dflt p i t outD Hsp) as Hc.
+  pose proof (rvc_pos l) as Hr.
+  pose proof (lvc_pos r) as Hl.
+  lia.
+Qed.
+
+Corollary split_f_O_log_n {M} {A B} `{Monoid M} `{Exact A B}
+    (md : A -> M) (dflt : A) (p : M -> bool) (i : M)
+    (t : MSeq M A) (outD : SplitDmd M B) :
+  t <> MNil ->
+  Tick.cost (splitTreeD_f md dflt p i t outD)
+    <= split_f_c1 * Nat.log2 (size t) + split_f_c2.
+Proof.
+  intro Hne.
+  pose proof (splitTreeD_f_cost md dflt p i t outD) as Hc.
+  pose proof (@depth_log_size _ _ t Hne) as Hd.
+  unfold split_f_c1, split_f_c2 in *. nia.
+Qed.
+
+(* ================================================================= *)
 (** ** End of FingerSplit                                              *)
 (* ================================================================= *)
