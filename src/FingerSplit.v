@@ -2738,5 +2738,245 @@ Proof.
 Qed.
 
 (* ================================================================= *)
+(** ** Section 11: The clairvoyant split (M9b stage 4d, Pass 1)        *)
+(* ================================================================= *)
+
+(** The clairvoyant translation of [splitTree], against which
+    [splitTreeD_f] is specified.  Accounting follows Section 8's
+    conventions: one [tick] per visited tree node ([splitTreeA],
+    [viewLA]/[viewRA]) plus one [tick] per [toTree] rebuild of a result
+    half ([toTreeD]'s convention); every measure/reassembly helper is
+    tick-free.  [Core.M] is the clairvoyance monad ([M] still names the
+    measure monoid).
+
+    The load-bearing definition is [measureSeqA], the cache computation
+    of [mdeep]: it forces the middle's root, its digit roots, and the
+    tuple roots inside those digits ([measureMTupleA] reads only the
+    strict cache field) — BY CONSTRUCTION exactly the skeleton
+    [mseqSkel] that the demand side merges in with [addSkel].  The lazy
+    constructions mirror the demand gating: result halves and rebuilt
+    view trees are wrapped in [thunk] ([let~]), so their cost is paid
+    exactly when the corresponding demand is non-bottom.  The [‖ml‖]
+    chain is visible in [splitTreeA]'s middle branch: the base [b]
+    forces the skeleton of the recursive left half, which is why the
+    demand side's [mlD] always contains [mseqSkel ml]. *)
+
+Definition digitToListA {A} (d : DigitA A) : list (T A) :=
+  match d with
+  | OneA x       => [x]
+  | TwoA x y     => [x; y]
+  | ThreeA x y z => [x; y; z]
+  end.
+
+(** The approximation side of [measureSeq measureMTuple] — what building
+    an [mdeep] node forces of its middle: exactly [mseqSkel]. *)
+Definition measureSeqA {M B} `{Monoid M} (s : MSeqA M (MTupleA M B))
+    : Core.M M :=
+  match s with
+  | MNilA    => ret mzero
+  | MUnitA x => let! xv := force x in ret (measureMTupleA xv)
+  | MMoreA vm prT _ sfT =>
+      forcing prT (fun pr =>
+      let! vpr := measureDigitA measureMTupleA pr in
+      forcing sfT (fun sf =>
+      let! vsf := measureDigitA measureMTupleA sf in
+      ret (vpr <+> vm <+> vsf)))
+  end.
+
+(** [mdeep]: store the fields, compute the strict cache (forces the
+    middle's skeleton, nothing of the digits).  Tick-free. *)
+Definition mdeepA {M B} `{Monoid M} (prT : T (DigitA B))
+    (mT : T (MSeqA M (MTupleA M B))) (sfT : T (DigitA B))
+    : Core.M (MSeqA M B) :=
+  let! vm := forcing mT (fun m => measureSeqA m) in
+  ret (MMoreA vm prT mT sfT).
+
+(** [toTree] on at most three element slots.  Tick-free here: as a
+    split result half the rebuild carries [toTreeD]'s one tick at the
+    call site; inside [deepLA]/[deepRA]'s empty case the cascade's tick
+    on the [MNilA] middle already paid for it (cf. [deepLD_f]). *)
+Definition toTreeA {M B} `{Monoid M} (xs : list (T B))
+    : Core.M (MSeqA M B) :=
+  match xs with
+  | []        => ret MNilA
+  | [x]       => ret (MUnitA x)
+  | [x; y]    => ret (MMoreA mzero (Thunk (OneA x)) (Thunk MNilA)
+                             (Thunk (OneA y)))
+  | [x; y; z] => ret (MMoreA mzero (Thunk (TwoA x y)) (Thunk MNilA)
+                             (Thunk (OneA z)))
+  | _         => ret MNilA                     (* unreachable: |xs| ≤ 3 *)
+  end.
+
+(** The clairvoyant cascades: one tick per visited node, recursing into
+    the middle on a [One] front/rear (the [viewLD_f]/[viewRD_f]
+    accounting).  The rebuilt trees are [thunk]ed: undemanded rests cost
+    nothing, demanded rests force their borrow/skeleton exactly as
+    [borrowDmdL]/[borrowDmdR] record. *)
+Fixpoint viewLA {M B} `{Monoid M} (t : MSeqA M B) {struct t}
+    : Core.M (option (T B * T (MSeqA M B))) :=
+  tick >>
+  match t with
+  | MNilA    => ret None
+  | MUnitA x => ret (Some (x, Thunk MNilA))
+  | MMoreA vm prT mT sfT =>
+      forcing prT (fun pr =>
+      match pr with
+      | TwoA x y =>
+          let~ t' := mdeepA (Thunk (OneA y)) mT sfT in
+          ret (Some (x, t'))
+      | ThreeA x y z =>
+          let~ t' := mdeepA (Thunk (TwoA y z)) mT sfT in
+          ret (Some (x, t'))
+      | OneA x =>
+          let! v := forcing mT (fun m => viewLA m) in
+          match v with
+          | None =>
+              let~ t' := forcing sfT (fun sf => toTreeA (digitToListA sf)) in
+              ret (Some (x, t'))
+          | Some (t1, m') =>
+              let~ t' := forcing t1 (fun t1v =>
+                           mdeepA (Thunk (tupleToDigitA t1v)) m' sfT) in
+              ret (Some (x, t'))
+          end
+      end)
+  end.
+
+Fixpoint viewRA {M B} `{Monoid M} (t : MSeqA M B) {struct t}
+    : Core.M (option (T (MSeqA M B) * T B)) :=
+  tick >>
+  match t with
+  | MNilA    => ret None
+  | MUnitA x => ret (Some (Thunk MNilA, x))
+  | MMoreA vm prT mT sfT =>
+      forcing sfT (fun sf =>
+      match sf with
+      | TwoA x y =>
+          let~ t' := mdeepA prT mT (Thunk (OneA x)) in
+          ret (Some (t', y))
+      | ThreeA x y z =>
+          let~ t' := mdeepA prT mT (Thunk (TwoA x y)) in
+          ret (Some (t', z))
+      | OneA x =>
+          let! v := forcing mT (fun m => viewRA m) in
+          match v with
+          | None =>
+              let~ t' := forcing prT (fun pr => toTreeA (digitToListA pr)) in
+              ret (Some (t', x))
+          | Some (m', t1) =>
+              let~ t' := forcing t1 (fun t1v =>
+                           mdeepA prT m' (Thunk (tupleToDigitA t1v))) in
+              ret (Some (t', x))
+          end
+      end)
+  end.
+
+(** The clairvoyant reconstructions: tick-free wrappers choosing
+    residual refill vs borrow, exactly [deepL]/[deepR] (cost lives in
+    the cascade; cf. [deepLD_f]/[deepRD_f]). *)
+Definition deepLA {M B} `{Monoid M} (r : list (T B))
+    (mT : T (MSeqA M (MTupleA M B))) (sfT : T (DigitA B))
+    : Core.M (MSeqA M B) :=
+  match r with
+  | [x]       => mdeepA (Thunk (OneA x)) mT sfT
+  | [x; y]    => mdeepA (Thunk (TwoA x y)) mT sfT
+  | [x; y; z] => mdeepA (Thunk (ThreeA x y z)) mT sfT
+  | [] =>
+      let! v := forcing mT (fun m => viewLA m) in
+      match v with
+      | None => forcing sfT (fun sf => toTreeA (digitToListA sf))
+      | Some (t1, m') =>
+          forcing t1 (fun t1v => mdeepA (Thunk (tupleToDigitA t1v)) m' sfT)
+      end
+  | _ => ret MNilA                          (* unreachable: |r| ≤ 3 *)
+  end.
+
+Definition deepRA {M B} `{Monoid M} (prT : T (DigitA B))
+    (mT : T (MSeqA M (MTupleA M B))) (l : list (T B))
+    : Core.M (MSeqA M B) :=
+  match l with
+  | [x]       => mdeepA prT mT (Thunk (OneA x))
+  | [x; y]    => mdeepA prT mT (Thunk (TwoA x y))
+  | [x; y; z] => mdeepA prT mT (Thunk (ThreeA x y z))
+  | [] =>
+      let! v := forcing mT (fun m => viewRA m) in
+      match v with
+      | None => forcing prT (fun pr => toTreeA (digitToListA pr))
+      | Some (m', t1) =>
+          forcing t1 (fun t1v => mdeepA prT m' (Thunk (tupleToDigitA t1v)))
+      end
+  | _ => ret MNilA                          (* unreachable: |l| ≤ 3 *)
+  end.
+
+(** The digit split: scan exactly as [lookupDigitA] (forcing the slots
+    the measure scan reads), returning the residual slot lists and the
+    pivot slot unforced.  Tick-free. *)
+Definition splitDigitA {M B} `{Monoid M} (mdB : B -> M)
+    (p : M -> bool) (i : M) (d : DigitA B)
+    : Core.M (list (T B) * T B * list (T B)) :=
+  match d with
+  | OneA x => ret ([], x, [])
+  | TwoA x y =>
+      let! xv := force x in
+      if p (i <+> mdB xv) then ret ([], x, [y]) else ret ([x], y, [])
+  | ThreeA x y z =>
+      let! xv := force x in
+      if p (i <+> mdB xv) then ret ([], x, [y; z])
+      else
+        let! yv := force y in
+        if p (i <+> mdB xv <+> mdB yv) then ret ([x], y, [z])
+        else ret ([x; y], z, [])
+  end.
+
+(** The clairvoyant split.  One tick per visited node; the three-way
+    branch mirrors [splitTree] (and hence [splitTreeD_f]).  Both result
+    halves are [thunk]ed — except that the middle branch forces the
+    skeleton of the recursive LEFT half to compute the pivot scan's
+    base [b = vpr <+> ‖ml‖] (the chain of Section 2b), so the left
+    reconstruction below the top level is always run: precisely the
+    asymmetry of [splitTreeD_f], whose recursive left demand
+    [addSkel ml mlD0] is never bottom. *)
+Fixpoint splitTreeA {M B} `{Monoid M} (mdB : B -> M)
+    (p : M -> bool) (i : M) (t : MSeqA M B) {struct t}
+    : Core.M (T (MSeqA M B) * T B * T (MSeqA M B)) :=
+  tick >>
+  match t with
+  | MNilA    => ret (Thunk MNilA, Undefined, Thunk MNilA)
+                                      (* unreachable: ¬p(0) ∧ p(‖t‖) *)
+  | MUnitA x => ret (Thunk MNilA, x, Thunk MNilA)
+  | MMoreA vm prT mT sfT =>
+      forcing prT (fun pr =>
+      let! vd := measureDigitA mdB pr in
+      let vpr := i <+> vd in
+      if p vpr then
+        let! s := splitDigitA mdB p i pr in
+        let '(l1, x1, r1) := s in
+        let~ lOut := tick >> toTreeA l1 in
+        let~ rOut := deepLA r1 mT sfT in
+        ret (lOut, x1, rOut)
+      else if p (vpr <+> vm) then
+        let! s := forcing mT (fun m =>
+                    splitTreeA measureMTupleA p vpr m) in
+        let '(mlT, xsT, mrT) := s in
+        let! vml := forcing mlT (fun ml => measureSeqA ml) in
+        let b := vpr <+> vml in
+        let! s2 := forcing xsT (fun xs =>
+                     splitDigitA mdB p b (tupleToDigitA xs)) in
+        let '(l2, x2, r2) := s2 in
+        let~ lOut := deepRA prT mlT l2 in
+        let~ rOut := deepLA r2 mrT sfT in
+        ret (lOut, x2, rOut)
+      else
+        forcing sfT (fun sf =>
+        let! s := splitDigitA mdB p (vpr <+> vm) sf in
+        let '(l1, x1, r1) := s in
+        let~ lOut := deepRA prT mT l1 in
+        let~ rOut := tick >> toTreeA r1 in
+        ret (lOut, x1, rOut)))
+  end.
+Arguments splitTreeA : simpl nomatch.
+Arguments viewLA : simpl nomatch.
+Arguments viewRA : simpl nomatch.
+
+(* ================================================================= *)
 (** ** End of FingerSplit                                              *)
 (* ================================================================= *)
